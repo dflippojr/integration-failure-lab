@@ -1,0 +1,23 @@
+{
+  "id": "2a-duplicate",
+  "order": 4,
+  "title": "Lost acknowledgement",
+  "summary": "The payment is applied, but the ack is lost, so the queue redelivers it.",
+  "failures": {
+    "duplicate": {
+      "event": "ClaimPaid"
+    }
+  },
+  "safeguards": {
+    "idempotency": false
+  },
+  "lesson": "At-least-once delivery means duplicates will happen.",
+  "expect": {
+    "ok": false,
+    "visible": false,
+    "record": {
+      "status": "Paid",
+      "paidCents": 24000
+    }
+  }
+}

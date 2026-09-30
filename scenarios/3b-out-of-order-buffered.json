@@ -1,0 +1,23 @@
+{
+  "id": "3b-out-of-order-buffered",
+  "order": 7,
+  "title": "Out-of-order delivery, ordered consumer",
+  "summary": "Same delay, but the consumer buffers events until the sequence gap fills.",
+  "failures": {
+    "reorder": {
+      "event": "ClaimAccepted",
+      "delayMs": 500
+    }
+  },
+  "safeguards": {
+    "ordering": true
+  },
+  "lesson": "Ordering guarantees add latency and need a timeout for gaps that never fill.",
+  "expect": {
+    "ok": true,
+    "record": {
+      "status": "Paid",
+      "paidCents": 12000
+    }
+  }
+}

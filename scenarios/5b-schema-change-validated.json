@@ -1,0 +1,26 @@
+{
+  "id": "5b-schema-change-validated",
+  "order": 10,
+  "title": "Schema change, validating consumer",
+  "summary": "Same rename, but the consumer validates the payload and rejects it.",
+  "failures": {
+    "schemaChange": {
+      "event": "ClaimPaid"
+    }
+  },
+  "safeguards": {
+    "schemaValidation": true
+  },
+  "lesson": "Fail loudly at the boundary: a rejected message is fixable, a quietly wrong record may never be noticed.",
+  "expect": {
+    "ok": false,
+    "visible": true,
+    "dlq": [
+      "E3"
+    ],
+    "record": {
+      "status": "Accepted",
+      "paidCents": 0
+    }
+  }
+}

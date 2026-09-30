@@ -1,0 +1,23 @@
+{
+  "id": "5a-schema-change",
+  "order": 9,
+  "title": "Schema change, lenient consumer",
+  "summary": "The producer renames paidAmount to amountPaid without telling anyone.",
+  "failures": {
+    "schemaChange": {
+      "event": "ClaimPaid"
+    }
+  },
+  "safeguards": {
+    "schemaValidation": false
+  },
+  "lesson": "Lenient parsing turns a contract break into bad data.",
+  "expect": {
+    "ok": false,
+    "visible": false,
+    "record": {
+      "status": "Paid",
+      "paidCents": 0
+    }
+  }
+}

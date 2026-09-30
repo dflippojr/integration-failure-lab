@@ -1,0 +1,29 @@
+{
+  "id": "1c-fire-and-forget",
+  "order": 3,
+  "title": "Fire and forget",
+  "summary": "Same outage, but no retries and no dead-letter queue.",
+  "failures": {
+    "timeout": {
+      "event": "ClaimPaid",
+      "attempts": "all"
+    }
+  },
+  "safeguards": {
+    "retryLimit": 0,
+    "deadLetter": false
+  },
+  "lesson": "With no retries, a hiccup becomes silent data loss.",
+  "expect": {
+    "ok": false,
+    "visible": false,
+    "dlq": [],
+    "dropped": [
+      "E3"
+    ],
+    "record": {
+      "status": "Accepted",
+      "paidCents": 0
+    }
+  }
+}

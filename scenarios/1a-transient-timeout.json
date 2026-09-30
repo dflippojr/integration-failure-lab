@@ -1,0 +1,28 @@
+{
+  "id": "1a-transient-timeout",
+  "order": 1,
+  "title": "Transient timeout",
+  "summary": "The claim-status service times out twice on the payment event, then recovers.",
+  "failures": {
+    "timeout": {
+      "event": "ClaimPaid",
+      "attempts": [
+        1,
+        2
+      ]
+    }
+  },
+  "safeguards": {
+    "retryLimit": 3,
+    "backoff": "exponential"
+  },
+  "lesson": "Retries with backoff absorb transient failures.",
+  "expect": {
+    "ok": true,
+    "dlq": [],
+    "record": {
+      "status": "Paid",
+      "paidCents": 12000
+    }
+  }
+}

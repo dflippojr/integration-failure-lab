@@ -1,0 +1,22 @@
+{
+  "id": "2b-duplicate-idempotent",
+  "order": 5,
+  "title": "Lost acknowledgement, idempotent consumer",
+  "summary": "Same lost ack, but the consumer dedupes on eventId.",
+  "failures": {
+    "duplicate": {
+      "event": "ClaimPaid"
+    }
+  },
+  "safeguards": {
+    "idempotency": true
+  },
+  "lesson": "Idempotency fixes duplicates, at the cost of a dedupe store and a retention window.",
+  "expect": {
+    "ok": true,
+    "record": {
+      "status": "Paid",
+      "paidCents": 12000
+    }
+  }
+}

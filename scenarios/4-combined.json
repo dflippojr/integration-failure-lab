@@ -1,0 +1,33 @@
+{
+  "id": "4-combined",
+  "order": 8,
+  "title": "Everything at once",
+  "summary": "A timeout pushes the acceptance behind the payment, and the payment's ack is lost.",
+  "failures": {
+    "timeout": {
+      "event": "ClaimAccepted",
+      "attempts": [
+        1
+      ]
+    },
+    "duplicate": {
+      "event": "ClaimPaid"
+    }
+  },
+  "safeguards": {
+    "retryLimit": 3,
+    "backoff": "exponential",
+    "idempotency": true,
+    "ordering": true,
+    "schemaValidation": true,
+    "deadLetter": true
+  },
+  "lesson": "Real incidents are combinations of failures; each safeguard covers a different one.",
+  "expect": {
+    "ok": true,
+    "record": {
+      "status": "Paid",
+      "paidCents": 12000
+    }
+  }
+}

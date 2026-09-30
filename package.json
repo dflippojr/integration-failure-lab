@@ -1,0 +1,12 @@
+{
+  "name": "integration-failure-lab",
+  "private": true,
+  "type": "module",
+  "description": "Deterministic simulator of integration failures (timeouts, duplicates, reordering, schema changes) and their safeguards.",
+  "scripts": {
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

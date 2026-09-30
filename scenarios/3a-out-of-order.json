@@ -1,0 +1,24 @@
+{
+  "id": "3a-out-of-order",
+  "order": 6,
+  "title": "Out-of-order delivery",
+  "summary": "The acceptance event is delayed and arrives after the payment.",
+  "failures": {
+    "reorder": {
+      "event": "ClaimAccepted",
+      "delayMs": 500
+    }
+  },
+  "safeguards": {
+    "ordering": false
+  },
+  "lesson": "Last-write-wins is wrong when events can arrive late.",
+  "expect": {
+    "ok": false,
+    "visible": false,
+    "record": {
+      "status": "Accepted",
+      "paidCents": 12000
+    }
+  }
+}

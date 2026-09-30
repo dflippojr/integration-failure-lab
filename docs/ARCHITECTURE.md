@@ -25,9 +25,12 @@ Let a visitor see, in under a minute, why integration reliability is hard and wh
 | Failure | Downstream timeout (which attempt(s) time out) | off |
 | Failure | Duplicate delivery (ack lost, message redelivered) | off |
 | Failure | Out-of-order delivery (swap two events) | off |
+| Failure | Schema change (producer renames `paidAmount` to `amountPaid`) | off |
 | Safeguard | Retry limit (0–5) and backoff (none / fixed / exponential) | 3, exponential |
 | Safeguard | Idempotency (dedupe on `eventId`) | off |
-| Safeguard | Ordering (reject or buffer when `seq` skips) | off |
+| Safeguard | Ordering (buffer when `seq` skips; drop stale `seq`) | off |
+| Safeguard | Schema validation at the consumer (reject, don't guess) | off |
+| Safeguard | Dead-letter queue for messages that give up | on |
 
 ## Outputs the visitor sees
 
@@ -38,7 +41,7 @@ Let a visitor see, in under a minute, why integration reliability is hard and wh
 
 ## Simulated vs. executed
 
-- **v1 is a deterministic simulation in the browser.** It uses a virtual clock and a seeded RNG, so each scenario replays identically. It's plain JavaScript with no dependencies, so it embeds directly in the static site. The page says clearly that it's simulated.
+- **v1 is a deterministic simulation in the browser.** It uses a virtual clock with fixed latencies and no randomness, so each scenario replays identically. It's plain JavaScript with no dependencies, so it embeds directly in the static site. The page says clearly that it's simulated.
 - **v2 (optional)** adds a real Java/Spring Boot producer and consumer that run the same scenario files and record real traces. The site then plays back recorded traces, labeled "executed", beside the simulation. That's how the lab shows Java/Spring skills without the site needing a live backend.
 
 ## Engine boundaries (so v1 and v2 share scenarios)
@@ -54,8 +57,8 @@ Let a visitor see, in under a minute, why integration reliability is hard and wh
 - A virtual clock, not real waiting, so a 30-second retry storm plays in about 3 seconds.
 - The repo is private until you decide otherwise, like `personal-website`.
 
-## Open questions for Daniel
+## Decided with Daniel (2026-09-29)
 
-- Should v2 be Java/Spring (your day-job stack) or something else?
-- Should a fourth scenario (schema change, for example a renamed field) be in v1 or wait?
-- Should the site version show one guided scenario at a time, or a free-form control panel?
+- **v2 stack:** Java/Spring Boot producer and consumer that run the same `scenarios/*.json` and export traces in the engine's trace format.
+- **Schema change is in v1** (scenarios 5a/5b).
+- **Two modes, chosen at first visit:** a picker offers **Guided** (one scenario at a time with a before/after and a verdict) or **Free-form** (the full control panel). The choice is remembered per browser and can be switched at any time.

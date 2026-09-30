@@ -1,0 +1,29 @@
+{
+  "id": "1b-outage-with-dlq",
+  "order": 2,
+  "title": "Outage, retry limit, dead-letter queue",
+  "summary": "The service stays down for every attempt; the queue gives up after 3 retries.",
+  "failures": {
+    "timeout": {
+      "event": "ClaimPaid",
+      "attempts": "all"
+    }
+  },
+  "safeguards": {
+    "retryLimit": 3,
+    "backoff": "exponential",
+    "deadLetter": true
+  },
+  "lesson": "A retry limit trades completeness for bounded load. Somebody has to watch the dead-letter queue.",
+  "expect": {
+    "ok": false,
+    "visible": true,
+    "dlq": [
+      "E3"
+    ],
+    "record": {
+      "status": "Accepted",
+      "paidCents": 0
+    }
+  }
+}
