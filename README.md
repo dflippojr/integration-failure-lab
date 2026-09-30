@@ -2,7 +2,7 @@
 
 Break a small healthcare-style integration on purpose, then watch what happens: traces, retries, queue state, and final outcomes. Flip on deduplication, retry limits, or ordering guarantees and run the same failure again.
 
-Planned as the signature interactive on [dflippojr.dev](https://dflippojr.dev) (see `personal-website` issue #18).
+Try it on [dflippojr.dev](https://dflippojr.dev/#lab), where it's the site's playground.
 
 **Status:** v1 simulation engine and all ten scenarios built and tested (`npm test`, Node 20+, no dependencies). Browser UI built (`ui/`): a first-visit picker for **Guided** or **Free-form**, animated trace, expected-vs-observed record, and verdict. **v2 (Java 21 / Spring Boot 4.1.1)** in `java/` executes the same scenario files over real HTTP (a delivery queue with read timeouts, retries, and a dead-letter queue posting to an embedded-Tomcat claim-status service with server-side fault injection) and exports traces to `executed/`. Guided mode on the site can replay those recorded runs next to the simulation.
 
@@ -24,3 +24,7 @@ python -m http.server 4180 --directory dist   # open http://127.0.0.1:4180
 The website vendors `dist/` into `public/lab/` (`node scripts/build.mjs ../personal-website/public/lab`).
 
 All data is synthetic. No real payers, patients, or PHI.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
