@@ -131,7 +131,7 @@ export function mountLab(root) {
       h('div', { class: 'ifl-tags' },
         h('span', { class: 'ifl-tag-label' }, 'Safeguards'), guardTags(s.safeguards).map(t => h('span', { class: 'ifl-tag' }, t))),
       h('div', { class: 'ifl-actions' },
-        h('button', { type: 'button', class: 'button ifl-run', onclick: () => play(run(s), s.lesson) }, 'Run scenario ', h('span', {}, '→')),
+        h('button', { type: 'button', class: 'button ifl-run', onclick: () => play(run(s), s.lesson) }, 'Run scenario ', h('span', { 'aria-hidden': 'true' }, '→')),
         h('span', { class: 'ifl-nav' }, prev, next)),
     );
     output.hidden = true;
@@ -164,7 +164,7 @@ export function mountLab(root) {
         check('idempotency', 'Idempotent consumer (dedupe on eventId)'),
         check('ordering', 'Ordered consumer (buffer early events)'),
         check('schemaValidation', 'Validate the payload schema')),
-      h('div', { class: 'ifl-actions' }, h('button', { type: 'submit', class: 'button ifl-run' }, 'Run ', h('span', {}, '→'))),
+      h('div', { class: 'ifl-actions' }, h('button', { type: 'submit', class: 'button ifl-run' }, 'Run ', h('span', { 'aria-hidden': 'true' }, '→'))),
     );
     body.replaceChildren(form);
     output.hidden = true;
