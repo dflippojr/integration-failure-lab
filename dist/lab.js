@@ -1,18 +1,31 @@
 // Browser UI for the integration failure lab. Mount with mountLab(element).
 // Uses the pure engine; everything runs client-side on a virtual clock.
-import { run, DEFAULT_SAFEGUARDS, TIMING } from './engine.js';
+import { run, judge, DEFAULT_SAFEGUARDS, EXPECTED_RECORD, TIMING } from './engine.js';
 import { SCENARIOS } from './scenarios.js';
+import { EXECUTED } from './executed.js';
 
 const MODE_KEY = 'ifl-mode';
+const SOURCE_KEY = 'ifl-source';
 const EVENT_TYPES = ['ClaimSubmitted', 'ClaimAccepted', 'ClaimPaid'];
 const dollars = cents => `$${(cents / 100).toFixed(2)}`;
 const secs = ms => (ms >= 1000 ? `${(ms / 1000).toFixed(ms % 1000 ? 2 : 0)} s` : `${ms} ms`);
 
-function readMode() {
-  try { return localStorage.getItem(MODE_KEY); } catch { return null; }
+function readPref(key) {
+  try { return localStorage.getItem(key); } catch { return null; }
 }
-function saveMode(mode) {
-  try { localStorage.setItem(MODE_KEY, mode); } catch { /* storage unavailable: choice lasts for this page view */ }
+function savePref(key, value) {
+  try { localStorage.setItem(key, value); } catch { /* storage unavailable: choice lasts for this page view */ }
+}
+
+const SIM_NOTE = `Simulated in your browser with synthetic data on a virtual clock (${TIMING.timeoutMs / 1000} s ack timeout, ${TIMING.latencyMs} ms delivery). Not a real payer or claims system.`;
+
+function executedResult(id) {
+  const x = EXECUTED[id];
+  if (!x) return null;
+  const verdict = judge(x.record, { dlq: x.dlq, dropped: x.dropped, buffered: x.buffered });
+  const note = `Recorded from a real run: Spring Boot ${x.runtime.springBoot} on Java ${x.runtime.java.split('+')[0]}, ${x.runtime.transport}. `
+    + `Shorter wall-clock timings (${x.timing.timeoutMs} ms ack timeout, ${x.timing.backoffBaseMs} ms backoff base), replayed here. Synthetic data.`;
+  return { ...x, expected: EXPECTED_RECORD, verdict, note };
 }
 const reducedMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
@@ -29,12 +42,12 @@ function h(tag, attrs = {}, ...children) {
   return el;
 }
 
-export function describe(row) {
+export function describe(row, timeoutMs = TIMING.timeoutMs) {
   const e = row.eventType;
   switch (row.kind) {
     case 'emit': return `Producer emits ${e} (seq ${row.seq})`;
     case 'send': return row.attempt === 1 ? `Queue delivers ${e}` : `Queue retries ${e} (attempt ${row.attempt})`;
-    case 'timeout': return `No ack for ${e} within ${secs(TIMING.timeoutMs)}`;
+    case 'timeout': return `No ack for ${e} within ${secs(timeoutMs)}`;
     case 'retry-scheduled': return `Backing off: ${row.note}`;
     case 'dead-letter': return `${e} parked in the dead-letter queue (${row.note})`;
     case 'drop': return `${e} dropped (${row.note})`;
@@ -78,7 +91,7 @@ function guardTags(g) {
 export function mountLab(root) {
   root.classList.add('ifl');
   root.replaceChildren();
-  const state = { mode: readMode(), index: 0, playing: null };
+  const state = { mode: readPref(MODE_KEY), source: readPref(SOURCE_KEY) === 'exec' ? 'exec' : 'sim', index: 0, playing: null };
 
   const header = h('div', { class: 'ifl-bar' });
   const body = h('div', { class: 'ifl-body' });
@@ -87,7 +100,7 @@ export function mountLab(root) {
 
   function setMode(mode) {
     state.mode = mode;
-    saveMode(mode);
+    savePref(MODE_KEY, mode);
     render();
     body.querySelector('button, input, select')?.focus();
   }
@@ -130,11 +143,31 @@ export function mountLab(root) {
         h('span', { class: 'ifl-tag-label' }, 'Failures'), failureTags(s.failures).map(t => h('span', { class: 'ifl-tag ifl-tag-fail' }, t))),
       h('div', { class: 'ifl-tags' },
         h('span', { class: 'ifl-tag-label' }, 'Safeguards'), guardTags(s.safeguards).map(t => h('span', { class: 'ifl-tag' }, t))),
+      sourceToggle(s.id),
       h('div', { class: 'ifl-actions' },
-        h('button', { type: 'button', class: 'button ifl-run', onclick: () => play(run(s), s.lesson) }, 'Run scenario ', h('span', { 'aria-hidden': 'true' }, '→')),
+        h('button', { type: 'button', class: 'button ifl-run', onclick: () => runGuided(s) },
+          state.source === 'exec' && EXECUTED[s.id] ? 'Replay real run ' : 'Run scenario ', h('span', { 'aria-hidden': 'true' }, '→')),
         h('span', { class: 'ifl-nav' }, prev, next)),
     );
     output.hidden = true;
+  }
+
+  function runGuided(s) {
+    const exec = state.source === 'exec' ? executedResult(s.id) : null;
+    if (exec) play(exec, s.lesson, exec.note);
+    else play(run(s), s.lesson, SIM_NOTE);
+  }
+
+  function sourceToggle(id) {
+    if (!EXECUTED[id]) return null;
+    const option = (value, label) => h('button', {
+      type: 'button', class: 'ifl-seg', 'aria-pressed': String(state.source === value),
+      onclick: () => { state.source = value; savePref(SOURCE_KEY, value); render(); },
+    }, label);
+    return h('div', { class: 'ifl-source', role: 'group', 'aria-label': 'Run source' },
+      h('span', { class: 'ifl-tag-label' }, 'Engine'),
+      option('sim', 'Simulated in browser'),
+      option('exec', 'Executed: Java / Spring'));
   }
 
   function renderFree() {
@@ -144,7 +177,7 @@ export function mountLab(root) {
     const check = (name, label, checked = false) => h('label', { class: 'ifl-check' },
       h('input', { type: 'checkbox', name, checked }), h('span', {}, label));
 
-    const form = h('form', { class: 'ifl-form', onsubmit: ev => { ev.preventDefault(); play(fromForm(form)); } },
+    const form = h('form', { class: 'ifl-form', onsubmit: ev => { ev.preventDefault(); play(fromForm(form), null, SIM_NOTE); } },
       h('fieldset', {}, h('legend', {}, 'Break something'),
         h('div', { class: 'ifl-row' }, check('timeout', 'Downstream times out on'), eventSelect('timeoutEvent', 'ClaimPaid'),
           h('select', { name: 'timeoutAttempts', 'aria-label': 'Which attempts time out' },
@@ -187,7 +220,7 @@ export function mountLab(root) {
     });
   }
 
-  function play(result, lesson) {
+  function play(result, lesson, note) {
     if (state.playing) clearInterval(state.playing);
     output.hidden = false;
     const list = h('ol', { class: 'ifl-trace' });
@@ -195,7 +228,7 @@ export function mountLab(root) {
     const counterEls = Object.fromEntries(Object.keys(counters).map(k => [k, h('strong', {}, '0')]));
     const clock = h('span', { class: 'ifl-clock' }, '0 ms');
     const stats = h('div', { class: 'ifl-stats' },
-      h('span', {}, 'Virtual time ', clock),
+      h('span', {}, result.timing ? 'Wall-clock time ' : 'Virtual time ', clock),
       h('span', {}, 'Attempts ', counterEls.attempts),
       h('span', {}, 'Retries ', counterEls.retries),
       h('span', {}, 'Timeouts ', counterEls.timeouts),
@@ -204,7 +237,7 @@ export function mountLab(root) {
     output.replaceChildren(
       h('p', { class: 'ifl-kicker' }, 'Trace'),
       stats, list, verdictBox,
-      h('p', { class: 'ifl-note' }, 'Simulated in your browser with synthetic data on a virtual clock (2 s ack timeout, 50 ms delivery). Not a real payer or claims system.'));
+      h('p', { class: 'ifl-note' }, note));
 
     const rows = result.trace;
     const addRow = row => {
@@ -216,7 +249,7 @@ export function mountLab(root) {
       list.append(h('li', { class: `ifl-${row.actor} ifl-${TONE[row.kind] ?? 'plain'}` },
         h('span', { class: 'ifl-t' }, secs(row.t)),
         h('span', { class: 'ifl-actor' }, row.actor),
-        h('span', { class: 'ifl-msg' }, describe(row))));
+        h('span', { class: 'ifl-msg' }, describe(row, result.timing?.timeoutMs))));
       list.scrollTop = list.scrollHeight;
     };
     const finish = () => { state.playing = null; renderVerdict(verdictBox, result, lesson); };

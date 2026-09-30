@@ -42,7 +42,7 @@ Let a visitor see, in under a minute, why integration reliability is hard and wh
 ## Simulated vs. executed
 
 - **v1 is a deterministic simulation in the browser.** It uses a virtual clock with fixed latencies and no randomness, so each scenario replays identically. It's plain JavaScript with no dependencies, so it embeds directly in the static site. The page says clearly that it's simulated.
-- **v2 (optional)** adds a real Java/Spring Boot producer and consumer that run the same scenario files and record real traces. The site then plays back recorded traces, labeled "executed", beside the simulation. That's how the lab shows Java/Spring skills without the site needing a live backend.
+- **v2 (built 2026-09-30)**: `java/` is a Spring Boot 4.1.1 / Java 21 app. A producer emits the three events on a schedule; a delivery queue posts each to `POST /claims/{id}/events` with the JDK `HttpClient` (read timeout), retries with backoff, treats 422 as non-retryable, and dead-letters or drops what it gives up on. The claim-status controller injects faults server-side (holding a request past the timeout without processing it, or processing it and holding the ack) and applies the same consumer safeguards as the engine. Wall-clock timings are shorter than the simulation's (300 ms timeout, 150 ms backoff base) and every trace records them. `ScenarioRunnerTest` runs all ten scenarios over real HTTP and asserts the same expectations as the JS tests; recorded traces live in `executed/` and ship to the site via `build.mjs`.
 
 ## Engine boundaries (so v1 and v2 share scenarios)
 

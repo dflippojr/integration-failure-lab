@@ -35,6 +35,9 @@
 .ifl-tag-label { font: 600 10px var(--mono, Consolas, monospace); letter-spacing: 1px; text-transform: uppercase; color: var(--ifl-muted); min-width: 86px; }
 .ifl-tag { font-size: 12px; border: 1px solid var(--ifl-line); background: var(--ifl-paper); border-radius: 20px; padding: 2px 9px; }
 .ifl-tag-fail { border-color: var(--warn-line, #d7b98a); color: var(--ifl-warn); }
+.ifl-source { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 14px 0 0; }
+.ifl-seg { font-size: 12px; border: 1px solid var(--ifl-line); background: var(--ifl-paper); color: var(--ifl-ink); border-radius: 20px; padding: 3px 11px; cursor: pointer; }
+.ifl-seg[aria-pressed="true"] { background: var(--ifl-green); border-color: var(--ifl-green); color: var(--ifl-paper); }
 .ifl-actions { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-top: 18px; }
 .ifl-actions .button { margin-top: 0; }
 .ifl-nav { display: flex; gap: 18px; }

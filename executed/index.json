@@ -1,0 +1,71 @@
+[ {
+  "scenarioId" : "1a-transient-timeout",
+  "record" : {
+    "status" : "Paid",
+    "paidCents" : 12000,
+    "applied" : [ "E1", "E2", "E3" ]
+  }
+}, {
+  "scenarioId" : "1b-outage-with-dlq",
+  "record" : {
+    "status" : "Accepted",
+    "paidCents" : 0,
+    "applied" : [ "E1", "E2" ]
+  }
+}, {
+  "scenarioId" : "1c-fire-and-forget",
+  "record" : {
+    "status" : "Accepted",
+    "paidCents" : 0,
+    "applied" : [ "E1", "E2" ]
+  }
+}, {
+  "scenarioId" : "2a-duplicate",
+  "record" : {
+    "status" : "Paid",
+    "paidCents" : 24000,
+    "applied" : [ "E1", "E2", "E3", "E3" ]
+  }
+}, {
+  "scenarioId" : "2b-duplicate-idempotent",
+  "record" : {
+    "status" : "Paid",
+    "paidCents" : 12000,
+    "applied" : [ "E1", "E2", "E3" ]
+  }
+}, {
+  "scenarioId" : "3a-out-of-order",
+  "record" : {
+    "status" : "Accepted",
+    "paidCents" : 12000,
+    "applied" : [ "E1", "E3", "E2" ]
+  }
+}, {
+  "scenarioId" : "3b-out-of-order-buffered",
+  "record" : {
+    "status" : "Paid",
+    "paidCents" : 12000,
+    "applied" : [ "E1", "E2", "E3" ]
+  }
+}, {
+  "scenarioId" : "4-combined",
+  "record" : {
+    "status" : "Paid",
+    "paidCents" : 12000,
+    "applied" : [ "E1", "E2", "E3" ]
+  }
+}, {
+  "scenarioId" : "5a-schema-change",
+  "record" : {
+    "status" : "Paid",
+    "paidCents" : 0,
+    "applied" : [ "E1", "E2", "E3" ]
+  }
+}, {
+  "scenarioId" : "5b-schema-change-validated",
+  "record" : {
+    "status" : "Accepted",
+    "paidCents" : 0,
+    "applied" : [ "E1", "E2" ]
+  }
+} ]
