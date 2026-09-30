@@ -4,7 +4,8 @@
   "type": "module",
   "description": "Deterministic simulator of integration failures (timeouts, duplicates, reordering, schema changes) and their safeguards.",
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "build": "node scripts/build.mjs"
   },
   "engines": {
     "node": ">=20"

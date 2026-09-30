@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Integration Failure Lab</title>
+  <link rel="stylesheet" href="lab.css">
+  <style>
+    body { margin: 0; padding: 32px 16px; background: #f6f3eb; font: 16px/1.6 system-ui, sans-serif; }
+    main { max-width: 900px; margin: auto; }
+    .button { display: inline-flex; gap: 20px; padding: 10px 18px; border: 0; background: #375d46; color: #fff; border-radius: 4px; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Integration Failure Lab</h1>
+    <div id="lab"></div>
+  </main>
+  <script type="module">
+    import { mountLab } from './lab.js';
+    mountLab(document.getElementById('lab'));
+  </script>
+</body>
+</html>
