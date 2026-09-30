@@ -1,0 +1,61 @@
+# Architecture (draft v0)
+
+## Goal
+
+Let a visitor see, in under a minute, why integration reliability is hard and what the standard fixes cost. The visitor picks a failure, runs it, and reads the outcome in plain language. Then they turn on a safeguard and run it again.
+
+## v1 shape: one producer, one queue, one downstream
+
+```
+ Producer            Queue / retry loop            Downstream
+ (claims intake) ──► (at-least-once delivery) ──► (claim status service)
+       │                     │                            │
+       └──────────── trace log (every hop, timestamped) ──┘
+```
+
+- **Producer:** emits a short, fixed sequence of synthetic claim events for one claim: `ClaimSubmitted`, `ClaimAccepted`, `ClaimPaid`. Each carries `eventId`, `claimId`, `seq`, `occurredAt`.
+- **Queue / delivery:** at-least-once. On timeout or 5xx it retries with backoff, up to a configurable limit. Messages it gives up on go to a dead-letter queue (DLQ).
+- **Downstream:** applies events to a claim record (status, paid amount). This is where duplicates and misordering do damage: double payment, or a claim that ends up "Accepted" after "Paid".
+- **Trace log:** one row per hop (send, attempt n, ack, timeout, retry scheduled, DLQ, apply, reject) with a virtual timestamp.
+
+## Visitor controls
+
+| Kind | Control | Default |
+| --- | --- | --- |
+| Failure | Downstream timeout (which attempt(s) time out) | off |
+| Failure | Duplicate delivery (ack lost, message redelivered) | off |
+| Failure | Out-of-order delivery (swap two events) | off |
+| Safeguard | Retry limit (0–5) and backoff (none / fixed / exponential) | 3, exponential |
+| Safeguard | Idempotency (dedupe on `eventId`) | off |
+| Safeguard | Ordering (reject or buffer when `seq` skips) | off |
+
+## Outputs the visitor sees
+
+1. **Timeline:** each hop on a virtual clock, retries visibly stacking up.
+2. **Queue panel:** in-flight, retrying, and DLQ counts.
+3. **Final claim record vs. expected record**, with the differences highlighted, for example "paid twice: $240 instead of $120".
+4. **One-sentence verdict** plus the tradeoff of the safeguard that fixed it. For example, idempotency needs a dedupe store and a retention window, and buffering for order adds latency.
+
+## Simulated vs. executed
+
+- **v1 is a deterministic simulation in the browser.** It uses a virtual clock and a seeded RNG, so each scenario replays identically. It's plain JavaScript with no dependencies, so it embeds directly in the static site. The page says clearly that it's simulated.
+- **v2 (optional)** adds a real Java/Spring Boot producer and consumer that run the same scenario files and record real traces. The site then plays back recorded traces, labeled "executed", beside the simulation. That's how the lab shows Java/Spring skills without the site needing a live backend.
+
+## Engine boundaries (so v1 and v2 share scenarios)
+
+- `scenarios/*.json`: failure injections, safeguard settings, and the expected final record.
+- `engine`: pure function `run(scenario, settings) -> { trace[], queue[], finalRecord, verdict }`. No DOM access.
+- `ui`: renders a trace. It can't tell whether the trace came from the simulator or from a recorded v2 run.
+
+## Decisions made by the agent (revisit freely)
+
+- The browser simulation comes first, and Java/Spring comes second. This follows the career plan: the stack is open, and Spring is a natural fit but not a requirement.
+- The claims domain uses the three events above: familiar from EDI work, and duplicates and misordering have obvious costs.
+- A virtual clock, not real waiting, so a 30-second retry storm plays in about 3 seconds.
+- The repo is private until you decide otherwise, like `personal-website`.
+
+## Open questions for Daniel
+
+- Should v2 be Java/Spring (your day-job stack) or something else?
+- Should a fourth scenario (schema change, for example a renamed field) be in v1 or wait?
+- Should the site version show one guided scenario at a time, or a free-form control panel?
