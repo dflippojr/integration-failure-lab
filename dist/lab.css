@@ -29,7 +29,7 @@
 .ifl-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
 .ifl-chip { font: 11px var(--mono, Consolas, monospace); border: 1px solid var(--ifl-line); background: var(--ifl-paper); color: var(--ifl-ink); border-radius: 20px; padding: 3px 10px; cursor: pointer; }
 .ifl-chip[aria-current] { background: var(--ifl-green); border-color: var(--ifl-green); color: var(--ifl-paper); }
-.ifl-title { font: 26px var(--serif, Georgia, serif); margin: 6px 0 6px; letter-spacing: -.5px; }
+.ifl-title { font: 26px var(--serif, Georgia, serif); margin: 6px 0 6px; letter-spacing: -.5px; text-wrap: balance; }
 .ifl-summary { font-size: 15px; margin: 0 0 14px; }
 .ifl-tags { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 6px 0; }
 .ifl-tag-label { font: 600 10px var(--mono, Consolas, monospace); letter-spacing: 1px; text-transform: uppercase; color: var(--ifl-muted); min-width: 86px; }
@@ -53,9 +53,11 @@
 
 .ifl-output { margin-top: 22px; border-top: 1px solid var(--ifl-line); padding-top: 18px; }
 .ifl-output[hidden] { display: none; }
-.ifl-stats { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 12px; color: var(--ifl-muted); margin-bottom: 10px; }
+.ifl-stats { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 12px; color: var(--ifl-muted); margin-bottom: 10px; font-variant-numeric: tabular-nums; }
 .ifl-stats strong, .ifl-clock { font: 600 12px var(--mono, Consolas, monospace); color: var(--ifl-ink); }
-.ifl-trace { list-style: none; margin: 0; padding: 0; max-height: 300px; overflow-y: auto; font: 12px/1.5 var(--mono, Consolas, monospace); border: 1px solid var(--ifl-line); border-radius: 6px; background: var(--ifl-paper); }
+.ifl-trace-scroll { max-height: 300px; overflow-y: auto; border: 1px solid var(--ifl-line); border-radius: 6px; background: var(--ifl-paper); }
+.ifl-trace-scroll:focus-visible { outline: 2px solid var(--ifl-green); outline-offset: 2px; }
+.ifl-trace { list-style: none; margin: 0; padding: 0; font: 12px/1.5 var(--mono, Consolas, monospace); font-variant-numeric: tabular-nums; }
 .ifl-trace li { display: grid; grid-template-columns: 62px 86px 1fr; gap: 8px; padding: 5px 10px; border-bottom: 1px dashed var(--ifl-line); }
 .ifl-trace li:last-child { border-bottom: 0; }
 .ifl-t { color: var(--ifl-muted); text-align: right; }
@@ -76,7 +78,7 @@
 .ifl-record th, .ifl-record td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--ifl-line); vertical-align: top; }
 .ifl-record thead th { font: 600 10px var(--mono, Consolas, monospace); letter-spacing: 1px; text-transform: uppercase; color: var(--ifl-muted); }
 .ifl-record tbody th { font-weight: 600; width: 32%; }
-.ifl-record td { font-family: var(--mono, Consolas, monospace); }
+.ifl-record td { font-family: var(--mono, Consolas, monospace); font-variant-numeric: tabular-nums; }
 .ifl-diff { color: var(--ifl-bad); font-weight: 700; background: color-mix(in srgb, var(--ifl-bad) 9%, transparent); }
 .ifl-lesson { font-size: 14px; margin: 0; }
 .ifl-note { font-size: 12px; color: var(--ifl-muted); margin: 14px 0 0; }

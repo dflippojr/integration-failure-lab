@@ -1,4 +1,5 @@
-// Browser UI for the integration failure lab. Mount with mountLab(element).
+// Browser UI for the integration failure lab. Mount with mountLab(element, { headingLevel }).
+// headingLevel (2-6, default 3) sets the scenario title's heading so it nests under the host page's outline.
 // Uses the pure engine; everything runs client-side on a virtual clock.
 import { run, judge, DEFAULT_SAFEGUARDS, EXPECTED_RECORD, TIMING } from './engine.js';
 import { SCENARIOS } from './scenarios.js';
@@ -88,7 +89,8 @@ function guardTags(g) {
   ].filter(Boolean);
 }
 
-export function mountLab(root) {
+export function mountLab(root, { headingLevel = 3 } = {}) {
+  const level = Math.min(6, Math.max(2, Math.trunc(Number(headingLevel)) || 3));
   root.classList.add('ifl');
   root.replaceChildren();
   const state = { mode: readPref(MODE_KEY), source: readPref(SOURCE_KEY) === 'exec' ? 'exec' : 'sim', index: 0, playing: null };
@@ -131,13 +133,14 @@ export function mountLab(root) {
     const chips = h('div', { class: 'ifl-chips', role: 'group', 'aria-label': 'Scenarios' },
       SCENARIOS.map((sc, i) => h('button', {
         type: 'button', class: 'ifl-chip', 'aria-current': i === state.index ? 'step' : null,
-        title: sc.title, onclick: () => { state.index = i; render(); },
+        'aria-label': `${sc.id.split('-')[0]}: ${sc.title}`, title: sc.title,
+        onclick: () => { state.index = i; render(); },
       }, sc.id.split('-')[0])));
     const prev = h('button', { type: 'button', class: 'ifl-link', disabled: state.index === 0, onclick: () => { state.index--; render(); } }, '← Previous');
     const next = h('button', { type: 'button', class: 'ifl-link', disabled: state.index === SCENARIOS.length - 1, onclick: () => { state.index++; render(); } }, 'Next →');
     body.replaceChildren(
       chips,
-      h('h4', { class: 'ifl-title' }, s.title),
+      h(`h${level}`, { class: 'ifl-title' }, s.title),
       h('p', { class: 'ifl-summary' }, s.summary),
       h('div', { class: 'ifl-tags' },
         h('span', { class: 'ifl-tag-label' }, 'Failures'), failureTags(s.failures).map(t => h('span', { class: 'ifl-tag ifl-tag-fail' }, t))),
@@ -172,20 +175,20 @@ export function mountLab(root) {
 
   function renderFree() {
     header.replaceChildren(h('p', { class: 'ifl-kicker' }, 'Free-form'), modeSwitch());
-    const eventSelect = (name, selected) => h('select', { name, 'aria-label': 'Event' },
+    const eventSelect = (name, selected, label) => h('select', { name, 'aria-label': label },
       EVENT_TYPES.map(t => h('option', { value: t, selected: t === selected }, t)));
     const check = (name, label, checked = false) => h('label', { class: 'ifl-check' },
       h('input', { type: 'checkbox', name, checked }), h('span', {}, label));
 
     const form = h('form', { class: 'ifl-form', onsubmit: ev => { ev.preventDefault(); play(fromForm(form), null, SIM_NOTE); } },
       h('fieldset', {}, h('legend', {}, 'Break something'),
-        h('div', { class: 'ifl-row' }, check('timeout', 'Downstream times out on'), eventSelect('timeoutEvent', 'ClaimPaid'),
+        h('div', { class: 'ifl-row' }, check('timeout', 'Downstream times out on'), eventSelect('timeoutEvent', 'ClaimPaid', 'Event that times out'),
           h('select', { name: 'timeoutAttempts', 'aria-label': 'Which attempts time out' },
             h('option', { value: 'first' }, 'the first attempt'),
             h('option', { value: 'two' }, 'the first two attempts'),
             h('option', { value: 'all' }, 'every attempt'))),
-        h('div', { class: 'ifl-row' }, check('duplicate', 'Ack lost for'), eventSelect('duplicateEvent', 'ClaimPaid')),
-        h('div', { class: 'ifl-row' }, check('reorder', 'Delay'), eventSelect('reorderEvent', 'ClaimAccepted'), h('span', {}, 'by 500 ms')),
+        h('div', { class: 'ifl-row' }, check('duplicate', 'Ack lost for'), eventSelect('duplicateEvent', 'ClaimPaid', 'Event whose ack is lost')),
+        h('div', { class: 'ifl-row' }, check('reorder', 'Delay'), eventSelect('reorderEvent', 'ClaimAccepted', 'Event to delay'), h('span', {}, 'by 500 ms')),
         h('div', { class: 'ifl-row' }, check('schemaChange', 'Producer renames paidAmount on ClaimPaid'))),
       h('fieldset', {}, h('legend', {}, 'Protect it'),
         h('div', { class: 'ifl-row' },
@@ -224,6 +227,8 @@ export function mountLab(root) {
     if (state.playing) clearInterval(state.playing);
     output.hidden = false;
     const list = h('ol', { class: 'ifl-trace' });
+    // The trace scrolls, so its container must be reachable and named for keyboard and screen reader users.
+    const scroller = h('div', { class: 'ifl-trace-scroll', role: 'region', 'aria-label': 'Event trace', tabindex: '0' }, list);
     const counters = { attempts: 0, retries: 0, timeouts: 0, parked: 0 };
     const counterEls = Object.fromEntries(Object.keys(counters).map(k => [k, h('strong', {}, '0')]));
     const clock = h('span', { class: 'ifl-clock' }, '0 ms');
@@ -236,7 +241,7 @@ export function mountLab(root) {
     const verdictBox = h('div', { class: 'ifl-verdict', role: 'status' });
     output.replaceChildren(
       h('p', { class: 'ifl-kicker' }, 'Trace'),
-      stats, list, verdictBox,
+      stats, scroller, verdictBox,
       h('p', { class: 'ifl-note' }, note));
 
     const rows = result.trace;
@@ -250,7 +255,7 @@ export function mountLab(root) {
         h('span', { class: 'ifl-t' }, secs(row.t)),
         h('span', { class: 'ifl-actor' }, row.actor),
         h('span', { class: 'ifl-msg' }, describe(row, result.timing?.timeoutMs))));
-      list.scrollTop = list.scrollHeight;
+      scroller.scrollTop = scroller.scrollHeight;
     };
     const finish = () => { state.playing = null; renderVerdict(verdictBox, result, lesson); };
 
