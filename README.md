@@ -14,14 +14,14 @@ Try it on [dflippojr.dev](https://dflippojr.dev/#lab), where it's the site's pla
 ## Develop
 
 ```sh
-npm test          # engine tests
+npm test          # engine and UI tests
 cd java && ./mvnw verify   # executes all ten scenarios over real HTTP (Java 21)
 java -jar java/target/integration-failure-lab-0.1.0-SNAPSHOT.jar --lab.export-dir=executed   # run from java/: re-record traces
 npm run build     # assemble dist/ (engine, UI, CSS, generated scenarios.js)
 python -m http.server 4180 --directory dist   # open http://127.0.0.1:4180
 ```
 
-The website vendors `dist/` into `public/lab/` (`node scripts/build.mjs ../personal-website/public/lab`).
+The website vendors `dist/` into `public/lab/` (`node scripts/build.mjs ../personal-website/public/lab`). Mount with `mountLab(element, { headingLevel })`: the scenario title is an `h3` by default, for a lab placed under an `h2`; pass the level that fits your page (2-6).
 
 All data is synthetic. No real payers, patients, or PHI.
 
