@@ -107,6 +107,14 @@ export function mountLab(root, { headingLevel = 3 } = {}) {
     body.querySelector('button, input, select')?.focus();
   }
 
+  // Re-rendering replaces the clicked control, so move focus to its replacement instead of losing it to <body>.
+  function refocus(...selectors) {
+    for (const sel of selectors) {
+      const el = body.querySelector(sel);
+      if (el) { el.focus(); return; }
+    }
+  }
+
   function renderPicker() {
     header.replaceChildren(h('p', { class: 'ifl-kicker' }, 'How do you want to explore?'));
     const card = (mode, title, text) => h('button', { type: 'button', class: 'ifl-pick', onclick: () => setMode(mode) },
@@ -134,10 +142,11 @@ export function mountLab(root, { headingLevel = 3 } = {}) {
       SCENARIOS.map((sc, i) => h('button', {
         type: 'button', class: 'ifl-chip', 'aria-current': i === state.index ? 'step' : null,
         'aria-label': `${sc.id.split('-')[0]}: ${sc.title}`, title: sc.title,
-        onclick: () => { state.index = i; render(); },
+        onclick: () => { state.index = i; render(); refocus('.ifl-chip[aria-current]'); },
       }, sc.id.split('-')[0])));
-    const prev = h('button', { type: 'button', class: 'ifl-link', disabled: state.index === 0, onclick: () => { state.index--; render(); } }, '← Previous');
-    const next = h('button', { type: 'button', class: 'ifl-link', disabled: state.index === SCENARIOS.length - 1, onclick: () => { state.index++; render(); } }, 'Next →');
+    const step = (by, cls) => () => { state.index += by; render(); refocus(`.${cls}:not([disabled])`, '.ifl-chip[aria-current]'); };
+    const prev = h('button', { type: 'button', class: 'ifl-link ifl-prev', disabled: state.index === 0, onclick: step(-1, 'ifl-prev') }, '← Previous');
+    const next = h('button', { type: 'button', class: 'ifl-link ifl-next', disabled: state.index === SCENARIOS.length - 1, onclick: step(1, 'ifl-next') }, 'Next →');
     body.replaceChildren(
       chips,
       h(`h${level}`, { class: 'ifl-title' }, s.title),
@@ -165,7 +174,7 @@ export function mountLab(root, { headingLevel = 3 } = {}) {
     if (!EXECUTED[id]) return null;
     const option = (value, label) => h('button', {
       type: 'button', class: 'ifl-seg', 'aria-pressed': String(state.source === value),
-      onclick: () => { state.source = value; savePref(SOURCE_KEY, value); render(); },
+      onclick: () => { state.source = value; savePref(SOURCE_KEY, value); render(); refocus('.ifl-seg[aria-pressed="true"]'); },
     }, label);
     return h('div', { class: 'ifl-source', role: 'group', 'aria-label': 'Run source' },
       h('span', { class: 'ifl-tag-label' }, 'Engine'),
