@@ -43,8 +43,11 @@ public class ScenarioRunner {
     }
 
     public synchronized Map<String, Object> run(Scenario scenario) throws InterruptedException {
-        RestClient client = client();
-        client.get().uri("/health").retrieve().toBodilessEntity(); // warm the connection so run timings are fair
+        HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(1)).version(HttpClient.Version.HTTP_1_1).build();
+        // Warm the shared connection so run timings are fair. The first request to a cold server can
+        // outlast the scenario's read timeout, so the warm-up gets a generous one of its own.
+        client(http, Duration.ofSeconds(10)).get().uri("/health").retrieve().toBodilessEntity();
+        RestClient client = client(http, Duration.ofMillis(props.timeoutMs()));
 
         Trace trace = new Trace();
         store.reset();
@@ -90,10 +93,9 @@ public class ScenarioRunner {
         return event;
     }
 
-    private RestClient client() {
-        JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory(
-                HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(1)).version(HttpClient.Version.HTTP_1_1).build());
-        factory.setReadTimeout(Duration.ofMillis(props.timeoutMs()));
+    private RestClient client(HttpClient http, Duration readTimeout) {
+        JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory(http);
+        factory.setReadTimeout(readTimeout);
         return RestClient.builder()
                 .baseUrl("http://127.0.0.1:" + env.getRequiredProperty("local.server.port"))
                 .requestFactory(factory)

@@ -1,0 +1,54 @@
+name: SonarCloud
+
+# SonarCloud is free for this public repo. Automatic analysis must be off in
+# SonarCloud; this workflow is the analysis, so coverage is included: lcov from
+# the Node test runner and JaCoCo from the Spring module. sonar.qualitygate.wait
+# fails the check when the quality gate fails. Keys live in sonar-project.properties.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: sonar-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sonar:
+    runs-on: ubuntu-latest
+    # Secrets are not passed to pull requests from forks; skip rather than fail.
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history so SonarCloud can blame lines and find the PR base.
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Test engine and UI with coverage
+        run: >
+          node --test --experimental-test-coverage
+          --test-reporter=spec --test-reporter-destination=stdout
+          --test-reporter=lcov --test-reporter-destination=lcov.info
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: maven
+      - name: Build and test Java with coverage
+        working-directory: java
+        run: ./mvnw -B verify
+      - name: Scan with SonarCloud
+        uses: SonarSource/sonarqube-scan-action@v8
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          args: >
+            -Dsonar.host.url=https://sonarcloud.io
+            -Dsonar.qualitygate.wait=true
