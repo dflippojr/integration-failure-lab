@@ -1,17 +1,21 @@
 // Assemble dist/ for embedding: engine.js, lab.js, lab.css, and scenarios.js generated from scenarios/*.json.
-// Usage: node scripts/build.mjs [targetDir]   (default: dist). The website vendors this into public/lab/.
-// targetDir must sit inside the folder that holds this repo (e.g. ../personal-website/public/lab) or the OS temp dir (tests).
+// Usage: node scripts/build.mjs [dist|site|test]   (default: dist)
+//   dist  this repo's dist/
+//   site  ../personal-website/public/lab, the website checkout next to this repo
+//   test  dist-test/ (git-ignored), the generated modules the UI tests import
+// Targets are fixed names, never paths, so the build cannot be pointed anywhere else.
 import { readdirSync, readFileSync, writeFileSync, mkdirSync, copyFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join, resolve, sep } from 'node:path';
+import { join, resolve } from 'node:path';
 
 const root = resolve(import.meta.dirname, '..');
-const workspace = resolve(root, '..');
-const temp = resolve(tmpdir());
-const out = resolve(process.argv[2] ?? join(root, 'dist'));
-if (!out.startsWith(workspace + sep) && !out.startsWith(temp + sep)) {
-  console.error(`Target ${out} is outside ${workspace} and ${temp}; refusing to write there.`);
-  process.exit(1);
+let out;
+switch (process.argv[2] ?? 'dist') {
+  case 'dist': out = join(root, 'dist'); break;
+  case 'site': out = join(root, '..', 'personal-website', 'public', 'lab'); break;
+  case 'test': out = join(root, 'dist-test'); break;
+  default:
+    console.error(`Unknown target "${process.argv[2]}"; use dist, site or test.`);
+    process.exit(1);
 }
 mkdirSync(out, { recursive: true });
 

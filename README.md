@@ -23,7 +23,7 @@ python -m http.server 4180 --directory dist   # open http://127.0.0.1:4180
 
 The runner reads scenarios from `../scenarios` relative to where it starts, so run the jar from `java/`.
 
-The website vendors `dist/` into `public/lab/` (`node scripts/build.mjs ../personal-website/public/lab`). The build only writes inside the folder that holds this repo (so the website checkout must sit next to it) or the OS temp dir; any other target exits with an error. Mount with `mountLab(element, { headingLevel })`: the scenario title is an `h3` by default, for a lab placed under an `h2`; pass the level that fits your page (2-6).
+The website vendors the bundle into `public/lab/` (`node scripts/build.mjs site`, which writes to `../personal-website/public/lab`, so the website checkout must sit next to this repo). The build takes a fixed target name, not a path: `dist` (the default), `site`, or `test` (the git-ignored `dist-test/` the UI tests use); anything else exits with an error. Mount with `mountLab(element, { headingLevel })`: the scenario title is an `h3` by default, for a lab placed under an `h2`; pass the level that fits your page (2-6).
 
 All data is synthetic. No real payers, patients, or PHI.
 
