@@ -1,11 +1,9 @@
-// UI accessibility checks for ui/lab.js, run against a freshly built bundle with a minimal fake DOM (no dependencies).
+// UI accessibility checks for ui/lab.js, run with freshly generated scenario modules and a minimal fake DOM (no dependencies).
 import { test, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { register } from 'node:module';
+import { fileURLToPath } from 'node:url';
 
 class FakeElement {
   constructor(tag) {
@@ -35,9 +33,10 @@ before(async () => {
   globalThis.Node = FakeElement;
   globalThis.document = { createElement: tag => new FakeElement(tag) };
   globalThis.window = { matchMedia: () => ({ matches: true }) }; // reduced motion: traces render synchronously
-  const out = mkdtempSync(join(tmpdir(), 'ifl-ui-'));
-  execFileSync(process.execPath, [fileURLToPath(new URL('../scripts/build.mjs', import.meta.url)), out]);
-  ({ mountLab } = await import(pathToFileURL(join(out, 'lab.js'))));
+  execFileSync(process.execPath, [fileURLToPath(new URL('../scripts/build.mjs', import.meta.url)), 'test']);
+  // Import the source ui/lab.js, not a built copy, so coverage lands on it; see lab-loader.mjs.
+  register('./lab-loader.mjs', import.meta.url);
+  ({ mountLab } = await import('../ui/lab.js'));
 });
 
 const mount = (opts, mode) => {
