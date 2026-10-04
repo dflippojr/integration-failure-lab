@@ -9,21 +9,30 @@ Try it on [dflippojr.dev](https://dflippojr.dev/#lab), where it's the site's pla
 - [Architecture](docs/ARCHITECTURE.md): components, event model, what's simulated vs. executed
 - [Scenarios](docs/SCENARIOS.md): the v1 scenario matrix with expected outcomes
 - `engine/engine.js`: pure, deterministic simulator: `run(scenario, overrides) -> { trace, record, dlq, dropped, buffered, stats, verdict }`
-- `scenarios/*.json`: the scenarios, shared with the future Java/Spring runner
+- `scenarios/*.json`: the scenarios, shared by the engine and the Java/Spring runner in `java/`
 
 ## Develop
 
 ```sh
 npm test          # engine and UI tests
 cd java && ./mvnw verify   # executes all ten scenarios over real HTTP (Java 21)
-java -jar java/target/integration-failure-lab-0.1.0-SNAPSHOT.jar --lab.export-dir=executed   # run from java/: re-record traces
-npm run build     # assemble dist/ (engine, UI, CSS, generated scenarios.js)
+java -jar target/integration-failure-lab-0.1.0-SNAPSHOT.jar --lab.export-dir=../executed   # from java/, after verify: re-record traces
+npm run build     # from the repo root: assemble dist/ (engine, UI, CSS, generated scenarios.js and executed.js)
 python -m http.server 4180 --directory dist   # open http://127.0.0.1:4180
 ```
 
-The website vendors `dist/` into `public/lab/` (`node scripts/build.mjs ../personal-website/public/lab`). Mount with `mountLab(element, { headingLevel })`: the scenario title is an `h3` by default, for a lab placed under an `h2`; pass the level that fits your page (2-6).
+The runner reads scenarios from `../scenarios` relative to where it starts, so run the jar from `java/`.
+
+The website vendors `dist/` into `public/lab/` (`node scripts/build.mjs ../personal-website/public/lab`). The build only writes inside the folder that holds this repo (so the website checkout must sit next to it) or the OS temp dir; any other target exits with an error. Mount with `mountLab(element, { headingLevel })`: the scenario title is an `h3` by default, for a lab placed under an `h2`; pass the level that fits your page (2-6).
 
 All data is synthetic. No real payers, patients, or PHI.
+
+### CI
+
+GitHub Actions runs two workflows on pushes and pull requests:
+
+- `.github/workflows/test.yml`: `npm test` (Node 22) and `./mvnw -B verify` in `java/` (Java 21).
+- `.github/workflows/sonar.yml`: SonarCloud analysis with coverage (lcov from the Node test runner, JaCoCo from the Java module). It runs on pushes to `main` and on pull requests from this repo, and fails when the quality gate fails. Project keys are in `sonar-project.properties`.
 
 ## License
 
