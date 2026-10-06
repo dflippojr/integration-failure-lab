@@ -11,7 +11,8 @@ import java.util.Set;
 public record Scenario(String id, int order, String title, Failures failures, Safeguards safeguards, Map<String, Object> expect) {
 
     public record Failures(String timeoutEvent, Set<Integer> timeoutAttempts, boolean timeoutAll,
-                           String duplicateEvent, String reorderEvent, String schemaChangeEvent) {
+                           String duplicateEvent, String reorderEvent, String schemaChangeEvent,
+                           String poisonEvent) {
 
         public boolean timesOut(String type, int attempt) {
             return type.equals(timeoutEvent) && (timeoutAll || timeoutAttempts.contains(attempt));
@@ -27,7 +28,7 @@ public record Scenario(String id, int order, String title, Failures failures, Sa
     }
 
     public record Safeguards(int retryLimit, String backoff, boolean idempotency, boolean ordering,
-                             boolean schemaValidation, boolean deadLetter) {
+                             boolean schemaValidation, boolean deadLetter, boolean replayAfterFix) {
 
         public long backoffMs(long base, int retryNumber) {
             return switch (backoff) {
@@ -40,7 +41,8 @@ public record Scenario(String id, int order, String title, Failures failures, Sa
 
         public Map<String, Object> asMap() {
             return Map.of("retryLimit", retryLimit, "backoff", backoff, "idempotency", idempotency,
-                    "ordering", ordering, "schemaValidation", schemaValidation, "deadLetter", deadLetter);
+                    "ordering", ordering, "schemaValidation", schemaValidation, "deadLetter", deadLetter,
+                    "replayAfterFix", replayAfterFix);
         }
     }
 
@@ -58,7 +60,8 @@ public record Scenario(String id, int order, String title, Failures failures, Sa
                 "all".equals(attempts),
                 eventOf(f.get("duplicate")),
                 eventOf(f.get("reorder")),
-                eventOf(f.get("schemaChange")));
+                eventOf(f.get("schemaChange")),
+                eventOf(f.get("poison")));
 
         Map<String, Object> g = (Map<String, Object>) json.getOrDefault("safeguards", Map.of());
         Safeguards safeguards = new Safeguards(
@@ -67,7 +70,8 @@ public record Scenario(String id, int order, String title, Failures failures, Sa
                 (Boolean) g.getOrDefault("idempotency", false),
                 (Boolean) g.getOrDefault("ordering", false),
                 (Boolean) g.getOrDefault("schemaValidation", false),
-                (Boolean) g.getOrDefault("deadLetter", true));
+                (Boolean) g.getOrDefault("deadLetter", true),
+                (Boolean) g.getOrDefault("replayAfterFix", false));
 
         return new Scenario((String) json.get("id"), ((Number) json.getOrDefault("order", 0)).intValue(),
                 (String) json.get("title"), failures, safeguards,

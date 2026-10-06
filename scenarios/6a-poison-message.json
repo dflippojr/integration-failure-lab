@@ -1,0 +1,28 @@
+{
+  "id": "6a-poison-message",
+  "order": 11,
+  "title": "Poison message, dead-letter queue only",
+  "summary": "The producer ships ClaimPaid with the amount as text; the consumer can never parse it, so every retry fails.",
+  "failures": {
+    "poison": {
+      "event": "ClaimPaid"
+    }
+  },
+  "safeguards": {
+    "retryLimit": 3,
+    "backoff": "exponential",
+    "deadLetter": true
+  },
+  "lesson": "Retrying a message that can never work only delays the failure. The dead-letter queue holds it, but nothing fixes the record until someone acts.",
+  "expect": {
+    "ok": false,
+    "visible": true,
+    "dlq": [
+      "E3"
+    ],
+    "record": {
+      "status": "Accepted",
+      "paidCents": 0
+    }
+  }
+}

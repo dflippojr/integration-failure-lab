@@ -1,0 +1,27 @@
+{
+  "id": "6b-poison-message-replay",
+  "order": 12,
+  "title": "Poison message, replay after the fix",
+  "summary": "Same poison message, but once the producer is fixed the dead-letter queue is replayed with a fresh attempt count.",
+  "failures": {
+    "poison": {
+      "event": "ClaimPaid"
+    }
+  },
+  "safeguards": {
+    "retryLimit": 3,
+    "backoff": "exponential",
+    "deadLetter": true,
+    "replayAfterFix": true
+  },
+  "lesson": "Separate \"retry later\" from \"never going to work\": park the poison message, fix the cause, then replay it.",
+  "expect": {
+    "ok": true,
+    "visible": false,
+    "dlq": [],
+    "record": {
+      "status": "Paid",
+      "paidCents": 12000
+    }
+  }
+}

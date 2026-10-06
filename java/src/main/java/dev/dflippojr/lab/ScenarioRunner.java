@@ -9,6 +9,8 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -19,6 +21,7 @@ import org.springframework.core.env.Environment;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
@@ -55,6 +58,7 @@ public class ScenarioRunner {
 
         Delivery delivery = new Delivery(client, scenario, trace);
         List<ClaimEvent> events = ClaimEvent.sequence();
+        events.forEach(e -> delivery.originals.put(e.eventId(), e));
         for (int i = 0; i < events.size(); i++) {
             ClaimEvent event = producerPayload(events.get(i), scenario.failures());
             delivery.scheduler.schedule(() -> {
@@ -83,8 +87,13 @@ public class ScenarioRunner {
         return result;
     }
 
-    /** The producer side of the schema-change failure: it ships a renamed field. */
+    /** The producer side of the schema-change and poison failures: a renamed field, or an amount shipped as text. */
     private static ClaimEvent producerPayload(ClaimEvent event, Scenario.Failures failures) {
+        if (event.type().equals(failures.poisonEvent())) {
+            Map<String, Object> text = new HashMap<>(event.payload());
+            text.put("paidAmount", "120.00");
+            return event.withPayload(text);
+        }
         if (event.type().equals(failures.schemaChangeEvent())) {
             Map<String, Object> renamed = new HashMap<>(event.payload());
             renamed.put("amountPaid", renamed.remove("paidAmount"));
@@ -107,6 +116,8 @@ public class ScenarioRunner {
         final CountDownLatch done = new CountDownLatch(3);
         final List<Map<String, Object>> dlq = Collections.synchronizedList(new ArrayList<>());
         final List<Map<String, Object>> dropped = Collections.synchronizedList(new ArrayList<>());
+        final Map<String, ClaimEvent> originals = new ConcurrentHashMap<>();
+        private final Set<String> replayed = ConcurrentHashMap.newKeySet();
         private final RestClient client;
         private final Scenario scenario;
         private final Trace trace;
@@ -139,6 +150,12 @@ public class ScenarioRunner {
                 done.countDown();
             } catch (HttpClientErrorException rejected) {
                 giveUp(event, attempt, "rejected as non-retryable");
+            } catch (HttpServerErrorException failed) {
+                if (failed.getStatusCode().value() != 500) {
+                    onTimeout(event, attempt);
+                } else {
+                    retryOrGiveUp(event, attempt);
+                }
             } catch (RestClientException timeoutOrServerError) {
                 onTimeout(event, attempt);
             }
@@ -146,6 +163,10 @@ public class ScenarioRunner {
 
         private void onTimeout(ClaimEvent event, int attempt) {
             trace.log("queue", "timeout", event, "attempt", attempt);
+            retryOrGiveUp(event, attempt);
+        }
+
+        private void retryOrGiveUp(ClaimEvent event, int attempt) {
             Scenario.Safeguards guards = scenario.safeguards();
             if (attempt <= guards.retryLimit()) {
                 long wait = guards.backoffMs(props.backoffBaseMs(), attempt);
@@ -156,11 +177,23 @@ public class ScenarioRunner {
             }
         }
 
+        /** The producer fix has shipped: take the message out of the DLQ and deliver the corrected original afresh. */
+        private void replay(ClaimEvent poisoned, Map<String, Object> entry) {
+            dlq.remove(entry);
+            ClaimEvent fixed = originals.get(poisoned.eventId());
+            trace.log("queue", "replay", fixed, "note", "producer fix shipped, replaying from the dead-letter queue");
+            send(fixed, 1);
+        }
+
         private void giveUp(ClaimEvent event, int attempt, String reason) {
             Map<String, Object> entry = Map.of("eventId", event.eventId(), "eventType", event.type(), "reason", reason, "attempts", attempt);
             if (scenario.safeguards().deadLetter()) {
                 dlq.add(entry);
                 trace.log("queue", "dead-letter", event, "attempt", attempt, "note", reason);
+                if (scenario.safeguards().replayAfterFix() && replayed.add(event.eventId())) {
+                    scheduler.schedule(() -> replay(event, entry), props.replayDelayMs(), TimeUnit.MILLISECONDS);
+                    return; // the delivery is not finished until the replay settles
+                }
             } else {
                 dropped.add(entry);
                 trace.log("queue", "drop", event, "attempt", attempt, "note", reason + "; no dead-letter queue");

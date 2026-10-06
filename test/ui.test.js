@@ -62,7 +62,7 @@ test('headingLevel option sets the scenario title level, clamped to 2-6', () => 
 
 test('scenario chips have descriptive accessible names that start with their visible text', () => {
   const chips = mount(undefined, 'guided').find(e => e.className === 'ifl-chip');
-  assert.equal(chips.length, 10);
+  assert.equal(chips.length, 12);
   for (const chip of chips) {
     const name = chip.getAttribute('aria-label');
     assert.ok(name.startsWith(`${chip.text()}: `), name);

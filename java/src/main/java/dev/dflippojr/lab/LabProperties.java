@@ -16,7 +16,8 @@ public record LabProperties(
         long timeoutMs,
         long backoffBaseMs,
         List<Long> sendAtMs,
-        long reorderDelayMs) {
+        long reorderDelayMs,
+        long replayDelayMs) {
 
     public LabProperties {
         if (scenariosDir == null) scenariosDir = "../scenarios";
@@ -24,5 +25,6 @@ public record LabProperties(
         if (backoffBaseMs <= 0) backoffBaseMs = 150;
         if (sendAtMs == null || sendAtMs.isEmpty()) sendAtMs = List.of(0L, 40L, 80L);
         if (reorderDelayMs <= 0) reorderDelayMs = 200;
+        if (replayDelayMs <= 0) replayDelayMs = 400;
     }
 }

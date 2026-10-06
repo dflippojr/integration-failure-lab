@@ -17,7 +17,7 @@ import org.springframework.stereotype.Component;
 @Component
 public class ClaimStore {
 
-    public enum Outcome { ACK, REJECT }
+    public enum Outcome { ACK, REJECT, FAIL }
 
     private String status;
     private long paidCents;
@@ -36,6 +36,10 @@ public class ClaimStore {
     }
 
     public synchronized Outcome receive(ClaimEvent e, Scenario.Safeguards guards, Trace trace) {
+        if ("ClaimPaid".equals(e.type()) && e.payload().get("paidAmount") instanceof String) {
+            trace.log("downstream", "reject", e, "note", "poison: paidAmount is text, cannot be parsed");
+            return Outcome.FAIL;
+        }
         if (guards.schemaValidation() && "ClaimPaid".equals(e.type()) && !(e.payload().get("paidAmount") instanceof Number)) {
             trace.log("downstream", "reject", e, "note", "schema: missing paidAmount");
             return Outcome.REJECT;

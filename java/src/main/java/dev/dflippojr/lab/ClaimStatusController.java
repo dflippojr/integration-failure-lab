@@ -46,6 +46,9 @@ public class ClaimStatusController {
             return ResponseEntity.status(504).build();
         }
         ClaimStore.Outcome outcome = store.receive(event, scenario.safeguards(), trace);
+        if (outcome == ClaimStore.Outcome.FAIL) {
+            return ResponseEntity.status(500).build();
+        }
         if (outcome == ClaimStore.Outcome.REJECT) {
             return ResponseEntity.status(422).build();
         }

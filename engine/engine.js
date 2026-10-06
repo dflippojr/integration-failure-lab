@@ -6,6 +6,7 @@ export const TIMING = Object.freeze({
   latencyMs: 50,         // one-way delivery time for a healthy attempt
   timeoutMs: 2000,       // sender gives up waiting for an ack after this long
   backoffBaseMs: 1000,
+  replayAfterMs: 5000,   // the producer fix ships and the DLQ is replayed this long after it fills
 });
 
 export const DEFAULT_SAFEGUARDS = Object.freeze({
@@ -15,6 +16,7 @@ export const DEFAULT_SAFEGUARDS = Object.freeze({
   ordering: false,           // buffer ahead-of-sequence events, drop stale ones
   schemaValidation: false,   // reject payloads missing required fields
   deadLetter: true,          // park messages that give up instead of dropping them
+  replayAfterFix: false,     // after the producer fix, replay the DLQ once with a fresh attempt count
 });
 
 const CLAIM_ID = 'C-1001';
@@ -43,6 +45,12 @@ export function run(scenario, overrides = {}) {
   const events = claimEvents();
   const byType = Object.fromEntries(events.map(e => [e.type, e]));
 
+  const original = {};
+  if (failures.poison) {
+    const e = byType[failures.poison.event];
+    original[e.eventId] = e.payload;
+    e.payload = { paidAmount: '120.00' }; // amount shipped as text: the consumer cannot parse it
+  }
   if (failures.schemaChange) {
     const e = byType[failures.schemaChange.event];
     e.payload = { amountPaid: e.payload.paidAmount };
@@ -63,6 +71,7 @@ export function run(scenario, overrides = {}) {
   let nextSeq = 1;
   const dlq = [];
   const dropped = [];
+  const replayed = new Set();
   const stats = { attempts: 0, retries: 0, timeouts: 0, acksLost: 0, deduped: 0, buffered: 0, stale: 0, rejected: 0 };
 
   const timesOut = (e, attempt) => {
@@ -91,8 +100,13 @@ export function run(scenario, overrides = {}) {
     }
   }
 
-  // Returns 'ack' or 'reject'. Every non-rejected delivery is acked, including duplicates and buffered events.
+  // Returns 'ack', 'reject' (never retry) or 'fail' (processing error, retried). Every non-rejected delivery is acked, including duplicates and buffered events.
   function receive(t, e) {
+    if (e.type === 'ClaimPaid' && typeof e.payload.paidAmount === 'string') {
+      stats.rejected++;
+      log(t, 'downstream', 'reject', e, { note: 'poison: paidAmount is text, cannot be parsed' });
+      return 'fail';
+    }
     if (guards.schemaValidation && e.type === 'ClaimPaid' && typeof e.payload.paidAmount !== 'number') {
       stats.rejected++;
       log(t, 'downstream', 'reject', e, { note: 'schema: missing paidAmount' });
@@ -127,9 +141,32 @@ export function run(scenario, overrides = {}) {
     if (guards.deadLetter) {
       dlq.push({ eventId: e.eventId, eventType: e.type, reason, attempts: attempt });
       log(t, 'queue', 'dead-letter', e, { attempt, note: reason });
+      if (guards.replayAfterFix && !replayed.has(e.eventId)) {
+        replayed.add(e.eventId);
+        at(t + TIMING.replayAfterMs, now => replayDlq(now));
+      }
     } else {
       dropped.push({ eventId: e.eventId, eventType: e.type, reason, attempts: attempt });
       log(t, 'queue', 'drop', e, { attempt, note: `${reason}; no dead-letter queue` });
+    }
+  }
+
+  function scheduleRetry(t, e, attempt) {
+    if (attempt <= guards.retryLimit) {
+      const wait = backoffMs(guards.backoff, attempt);
+      log(t, 'queue', 'retry-scheduled', e, { attempt, note: `retry in ${wait} ms` });
+      at(t + wait, now => send(now, e, attempt + 1));
+    } else {
+      giveUp(t, e, attempt, `retry limit (${guards.retryLimit}) reached`);
+    }
+  }
+
+  function replayDlq(t) {
+    for (const entry of dlq.splice(0)) {
+      const e = events.find(x => x.eventId === entry.eventId);
+      e.payload = original[e.eventId] ?? e.payload;
+      log(t, 'queue', 'replay', e, { note: 'producer fix shipped, replaying from the dead-letter queue' });
+      send(t, e, 1);
     }
   }
 
@@ -140,13 +177,7 @@ export function run(scenario, overrides = {}) {
     const onTimeout = () => {
       stats.timeouts++;
       log(t + TIMING.timeoutMs, 'queue', 'timeout', e, { attempt });
-      if (attempt <= guards.retryLimit) {
-        const wait = backoffMs(guards.backoff, attempt);
-        log(t + TIMING.timeoutMs, 'queue', 'retry-scheduled', e, { attempt, note: `retry in ${wait} ms` });
-        at(t + TIMING.timeoutMs + wait, now => send(now, e, attempt + 1));
-      } else {
-        giveUp(t + TIMING.timeoutMs, e, attempt, `retry limit (${guards.retryLimit}) reached`);
-      }
+      scheduleRetry(t + TIMING.timeoutMs, e, attempt);
     };
 
     if (timesOut(e, attempt)) {
@@ -156,7 +187,9 @@ export function run(scenario, overrides = {}) {
     const arrival = t + TIMING.latencyMs + extraDelay(e, attempt);
     at(arrival, now => {
       const outcome = receive(now, e);
-      if (outcome === 'reject') {
+      if (outcome === 'fail') {
+        scheduleRetry(now, e, attempt);
+      } else if (outcome === 'reject') {
         giveUp(now, e, attempt, 'rejected as non-retryable');
       } else if (loseAck(e, attempt)) {
         stats.acksLost++;

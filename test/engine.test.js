@@ -11,8 +11,8 @@ const scenarios = readdirSync(dir)
 
 const kinds = (result, eventId) => result.trace.filter(r => r.eventId === eventId).map(r => r.kind);
 
-test('there are ten v1 scenarios', () => {
-  assert.equal(scenarios.length, 10);
+test('there are twelve scenarios', () => {
+  assert.equal(scenarios.length, 12);
 });
 
 for (const s of scenarios) {
@@ -84,6 +84,24 @@ test('5b rejects without retrying', () => {
   assert.equal(r.stats.rejected, 1);
   assert.equal(r.dlq[0].attempts, 1);
   assert.equal(r.dlq[0].reason, 'rejected as non-retryable');
+});
+
+test('6a retries a poison message to the limit, then parks it for good', () => {
+  const r = run(byId('6a-poison-message'));
+  assert.equal(r.dlq[0].attempts, 4);
+  assert.equal(r.dlq[0].reason, 'retry limit (3) reached');
+  assert.equal(r.stats.timeouts, 0);
+  assert.ok(!kinds(r, 'E3').includes('replay'));
+  assert.deepEqual(r.record.applied, ['E1', 'E2']);
+});
+
+test('6b replays the parked message with a fresh attempt count and drains the DLQ', () => {
+  const r = run(byId('6b-poison-message-replay'));
+  assert.deepEqual(r.dlq, []);
+  assert.deepEqual(r.record, EXPECTED_RECORD);
+  const sends = r.trace.filter(t => t.kind === 'send' && t.eventId === 'E3').map(t => t.attempt);
+  assert.deepEqual(sends, [1, 2, 3, 4, 1]);
+  assert.ok(kinds(r, 'E3').indexOf('replay') > kinds(r, 'E3').indexOf('dead-letter'));
 });
 
 test('overrides replace scenario safeguards (free-form mode)', () => {
