@@ -1,25 +1,26 @@
 {
   "scenarioId" : "3b-out-of-order-buffered",
   "mode" : "executed",
-  "generatedAt" : "2026-09-30T03:27:55.482853100Z",
+  "generatedAt" : "2026-10-06T10:27:25.897575400Z",
   "runtime" : {
     "transport" : "HTTP/1.1 on localhost (JDK HttpClient -> embedded Tomcat)",
-    "java" : "21.0.12.1+1-LTS",
-    "springBoot" : "4.1.1"
+    "springBoot" : "4.1.1",
+    "java" : "21.0.12.1+1-LTS"
   },
   "timing" : {
-    "backoffBaseMs" : 150,
     "sendAtMs" : [ 0, 40, 80 ],
-    "reorderDelayMs" : 200,
-    "timeoutMs" : 300
+    "backoffBaseMs" : 150,
+    "timeoutMs" : 300,
+    "reorderDelayMs" : 200
   },
   "guards" : {
     "ordering" : true,
+    "backoff" : "exponential",
+    "idempotency" : false,
+    "retryLimit" : 3,
     "deadLetter" : true,
     "schemaValidation" : false,
-    "retryLimit" : 3,
-    "backoff" : "exponential",
-    "idempotency" : false
+    "replayAfterFix" : false
   },
   "trace" : [ {
     "t" : 0,
@@ -51,49 +52,49 @@
     "eventType" : "ClaimSubmitted",
     "attempt" : 1
   }, {
-    "t" : 46,
+    "t" : 54,
     "actor" : "producer",
     "kind" : "emit",
     "eventId" : "E2",
     "eventType" : "ClaimAccepted",
     "seq" : 2
   }, {
-    "t" : 46,
+    "t" : 54,
     "actor" : "queue",
     "kind" : "send",
     "eventId" : "E2",
     "eventType" : "ClaimAccepted",
     "attempt" : 1
   }, {
-    "t" : 92,
+    "t" : 85,
     "actor" : "producer",
     "kind" : "emit",
     "eventId" : "E3",
     "eventType" : "ClaimPaid",
     "seq" : 3
   }, {
-    "t" : 92,
+    "t" : 85,
     "actor" : "queue",
     "kind" : "send",
     "eventId" : "E3",
     "eventType" : "ClaimPaid",
     "attempt" : 1
   }, {
-    "t" : 94,
+    "t" : 87,
     "actor" : "downstream",
     "kind" : "buffer",
     "eventId" : "E3",
     "eventType" : "ClaimPaid",
     "note" : "waiting for seq 2"
   }, {
-    "t" : 94,
+    "t" : 87,
     "actor" : "downstream",
     "kind" : "ack",
     "eventId" : "E3",
     "eventType" : "ClaimPaid",
     "attempt" : 1
   }, {
-    "t" : 251,
+    "t" : 257,
     "actor" : "downstream",
     "kind" : "apply",
     "eventId" : "E2",
@@ -101,14 +102,14 @@
     "status" : "Accepted",
     "paidCents" : 0
   }, {
-    "t" : 251,
+    "t" : 257,
     "actor" : "downstream",
     "kind" : "release",
     "eventId" : "E3",
     "eventType" : "ClaimPaid",
     "note" : "gap filled, releasing buffered event"
   }, {
-    "t" : 251,
+    "t" : 257,
     "actor" : "downstream",
     "kind" : "apply",
     "eventId" : "E3",
@@ -116,7 +117,7 @@
     "status" : "Paid",
     "paidCents" : 12000
   }, {
-    "t" : 251,
+    "t" : 257,
     "actor" : "downstream",
     "kind" : "ack",
     "eventId" : "E2",
