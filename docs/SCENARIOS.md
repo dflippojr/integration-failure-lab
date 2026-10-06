@@ -16,12 +16,8 @@ The expected record for every scenario is: claim `C-1001`, status `Paid`, paid a
 | 4 | Combined: timeout on `ClaimAccepted` + retry makes it arrive after `ClaimPaid` + ack lost on `ClaimPaid` | All safeguards on | Correct record; trace shows each safeguard firing | Real incidents are combinations of failures. |
 | 5a | Producer renames `paidAmount` to `amountPaid` on `ClaimPaid` | Schema validation off | Consumer reads a missing amount as zero; status `Paid` but paid `$0.00` | Lenient parsing turns a contract break into bad data. |
 | 5b | Same as 5a | Schema validation on | `ClaimPaid` rejected as non-retryable and sent to the DLQ; status stays `Accepted`, loudly | Fail at the boundary; a rejected message is fixable, a wrong record may not be noticed. |
-
-## Not built yet
-
-| # | Failure | Safeguard | Lesson |
-| --- | --- | --- | --- |
-| 6 | Poison message that always fails | DLQ plus a replay tool | Separate "retry later" from "never going to work". |
+| 6a | Poison message: the producer ships `ClaimPaid` with the amount as text, so the consumer fails on every delivery | Retry limit 3, DLQ, no replay | Four failed attempts, then `ClaimPaid` sits in the DLQ; status stays `Accepted` and unpaid, visibly | Retrying a message that can never work only delays the failure; the DLQ holds it but nothing repairs the record. |
+| 6b | Same as 6a | Replay after the producer fix | The fix ships 5 s after the DLQ fills and `ClaimPaid` is replayed with a fresh attempt count; the DLQ drains and the record is correct | Separate "retry later" from "never going to work": park it, fix the cause, replay. |
 
 ## Acceptance criteria for v1
 

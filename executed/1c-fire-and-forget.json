@@ -1,25 +1,26 @@
 {
   "scenarioId" : "1c-fire-and-forget",
   "mode" : "executed",
-  "generatedAt" : "2026-09-30T03:27:53.599195300Z",
+  "generatedAt" : "2026-10-06T10:27:24.245682100Z",
   "runtime" : {
     "transport" : "HTTP/1.1 on localhost (JDK HttpClient -> embedded Tomcat)",
-    "java" : "21.0.12.1+1-LTS",
-    "springBoot" : "4.1.1"
+    "springBoot" : "4.1.1",
+    "java" : "21.0.12.1+1-LTS"
   },
   "timing" : {
-    "backoffBaseMs" : 150,
     "sendAtMs" : [ 0, 40, 80 ],
-    "reorderDelayMs" : 200,
-    "timeoutMs" : 300
+    "backoffBaseMs" : 150,
+    "timeoutMs" : 300,
+    "reorderDelayMs" : 200
   },
   "guards" : {
     "ordering" : false,
+    "backoff" : "exponential",
+    "idempotency" : false,
+    "retryLimit" : 0,
     "deadLetter" : false,
     "schemaValidation" : false,
-    "retryLimit" : 0,
-    "backoff" : "exponential",
-    "idempotency" : false
+    "replayAfterFix" : false
   },
   "trace" : [ {
     "t" : 0,
@@ -36,7 +37,7 @@
     "eventType" : "ClaimSubmitted",
     "attempt" : 1
   }, {
-    "t" : 1,
+    "t" : 2,
     "actor" : "downstream",
     "kind" : "apply",
     "eventId" : "E1",
@@ -44,7 +45,7 @@
     "status" : "Submitted",
     "paidCents" : 0
   }, {
-    "t" : 1,
+    "t" : 2,
     "actor" : "downstream",
     "kind" : "ack",
     "eventId" : "E1",
@@ -65,7 +66,7 @@
     "eventType" : "ClaimAccepted",
     "attempt" : 1
   }, {
-    "t" : 57,
+    "t" : 56,
     "actor" : "downstream",
     "kind" : "apply",
     "eventId" : "E2",
@@ -73,7 +74,7 @@
     "status" : "Accepted",
     "paidCents" : 0
   }, {
-    "t" : 57,
+    "t" : 56,
     "actor" : "downstream",
     "kind" : "ack",
     "eventId" : "E2",
@@ -94,14 +95,14 @@
     "eventType" : "ClaimPaid",
     "attempt" : 1
   }, {
-    "t" : 398,
+    "t" : 400,
     "actor" : "queue",
     "kind" : "timeout",
     "eventId" : "E3",
     "eventType" : "ClaimPaid",
     "attempt" : 1
   }, {
-    "t" : 398,
+    "t" : 400,
     "actor" : "queue",
     "kind" : "drop",
     "eventId" : "E3",
@@ -116,10 +117,10 @@
   },
   "dlq" : [ ],
   "dropped" : [ {
-    "eventType" : "ClaimPaid",
-    "eventId" : "E3",
+    "attempts" : 1,
     "reason" : "retry limit (0) reached",
-    "attempts" : 1
+    "eventId" : "E3",
+    "eventType" : "ClaimPaid"
   } ],
   "buffered" : [ ]
 }

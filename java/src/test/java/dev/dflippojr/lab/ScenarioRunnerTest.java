@@ -28,7 +28,7 @@ class ScenarioRunnerTest {
     @TestFactory
     Stream<DynamicTest> everyScenarioMatchesItsExpectation() throws Exception {
         List<Scenario> scenarios = files.load();
-        assertThat(scenarios).hasSize(10);
+        assertThat(scenarios).hasSize(12);
         return scenarios.stream().map(s -> DynamicTest.dynamicTest(s.id(), () -> {
             Map<String, Object> result = runner.run(s);
             @SuppressWarnings("unchecked")
@@ -57,6 +57,9 @@ class ScenarioRunnerTest {
         assertThat(kinds(runner.run(byId.get("2b-duplicate-idempotent")))).contains("ack-lost", "dedupe");
         assertThat(kinds(runner.run(byId.get("3b-out-of-order-buffered")))).contains("buffer", "release");
         assertThat(kinds(runner.run(byId.get("5b-schema-change-validated")))).contains("reject", "dead-letter");
+        assertThat(kinds(runner.run(byId.get("6a-poison-message")))).contains("reject", "retry-scheduled", "dead-letter")
+                .doesNotContain("replay", "timeout");
+        assertThat(kinds(runner.run(byId.get("6b-poison-message-replay")))).contains("dead-letter", "replay", "apply");
     }
 
     @SuppressWarnings("unchecked")

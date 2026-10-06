@@ -1,7 +1,7 @@
 {
-  "scenarioId" : "2b-duplicate-idempotent",
+  "scenarioId" : "6b-poison-message-replay",
   "mode" : "executed",
-  "generatedAt" : "2026-10-06T10:27:25.367983Z",
+  "generatedAt" : "2026-10-06T10:27:29.379894600Z",
   "runtime" : {
     "transport" : "HTTP/1.1 on localhost (JDK HttpClient -> embedded Tomcat)",
     "springBoot" : "4.1.1",
@@ -16,11 +16,11 @@
   "guards" : {
     "ordering" : false,
     "backoff" : "exponential",
-    "idempotency" : true,
+    "idempotency" : false,
     "retryLimit" : 3,
     "deadLetter" : true,
     "schemaValidation" : false,
-    "replayAfterFix" : false
+    "replayAfterFix" : true
   },
   "trace" : [ {
     "t" : 0,
@@ -66,7 +66,7 @@
     "eventType" : "ClaimAccepted",
     "attempt" : 1
   }, {
-    "t" : 56,
+    "t" : 55,
     "actor" : "downstream",
     "kind" : "apply",
     "eventId" : "E2",
@@ -74,7 +74,7 @@
     "status" : "Accepted",
     "paidCents" : 0
   }, {
-    "t" : 56,
+    "t" : 55,
     "actor" : "downstream",
     "kind" : "ack",
     "eventId" : "E2",
@@ -97,27 +97,12 @@
   }, {
     "t" : 86,
     "actor" : "downstream",
-    "kind" : "apply",
+    "kind" : "reject",
     "eventId" : "E3",
     "eventType" : "ClaimPaid",
-    "status" : "Paid",
-    "paidCents" : 12000
+    "note" : "poison: paidAmount is text, cannot be parsed"
   }, {
-    "t" : 86,
-    "actor" : "downstream",
-    "kind" : "ack-lost",
-    "eventId" : "E3",
-    "eventType" : "ClaimPaid",
-    "attempt" : 1
-  }, {
-    "t" : 398,
-    "actor" : "queue",
-    "kind" : "timeout",
-    "eventId" : "E3",
-    "eventType" : "ClaimPaid",
-    "attempt" : 1
-  }, {
-    "t" : 398,
+    "t" : 87,
     "actor" : "queue",
     "kind" : "retry-scheduled",
     "eventId" : "E3",
@@ -125,26 +110,100 @@
     "attempt" : 1,
     "note" : "retry in 150 ms"
   }, {
-    "t" : 552,
+    "t" : 239,
     "actor" : "queue",
     "kind" : "send",
     "eventId" : "E3",
     "eventType" : "ClaimPaid",
     "attempt" : 2
   }, {
-    "t" : 555,
+    "t" : 242,
     "actor" : "downstream",
-    "kind" : "dedupe",
+    "kind" : "reject",
     "eventId" : "E3",
     "eventType" : "ClaimPaid",
-    "note" : "already seen, skipped"
+    "note" : "poison: paidAmount is text, cannot be parsed"
   }, {
-    "t" : 555,
+    "t" : 243,
+    "actor" : "queue",
+    "kind" : "retry-scheduled",
+    "eventId" : "E3",
+    "eventType" : "ClaimPaid",
+    "attempt" : 2,
+    "note" : "retry in 300 ms"
+  }, {
+    "t" : 550,
+    "actor" : "queue",
+    "kind" : "send",
+    "eventId" : "E3",
+    "eventType" : "ClaimPaid",
+    "attempt" : 3
+  }, {
+    "t" : 552,
+    "actor" : "downstream",
+    "kind" : "reject",
+    "eventId" : "E3",
+    "eventType" : "ClaimPaid",
+    "note" : "poison: paidAmount is text, cannot be parsed"
+  }, {
+    "t" : 554,
+    "actor" : "queue",
+    "kind" : "retry-scheduled",
+    "eventId" : "E3",
+    "eventType" : "ClaimPaid",
+    "attempt" : 3,
+    "note" : "retry in 600 ms"
+  }, {
+    "t" : 1154,
+    "actor" : "queue",
+    "kind" : "send",
+    "eventId" : "E3",
+    "eventType" : "ClaimPaid",
+    "attempt" : 4
+  }, {
+    "t" : 1157,
+    "actor" : "downstream",
+    "kind" : "reject",
+    "eventId" : "E3",
+    "eventType" : "ClaimPaid",
+    "note" : "poison: paidAmount is text, cannot be parsed"
+  }, {
+    "t" : 1157,
+    "actor" : "queue",
+    "kind" : "dead-letter",
+    "eventId" : "E3",
+    "eventType" : "ClaimPaid",
+    "attempt" : 4,
+    "note" : "retry limit (3) reached"
+  }, {
+    "t" : 1558,
+    "actor" : "queue",
+    "kind" : "replay",
+    "eventId" : "E3",
+    "eventType" : "ClaimPaid",
+    "note" : "producer fix shipped, replaying from the dead-letter queue"
+  }, {
+    "t" : 1558,
+    "actor" : "queue",
+    "kind" : "send",
+    "eventId" : "E3",
+    "eventType" : "ClaimPaid",
+    "attempt" : 1
+  }, {
+    "t" : 1561,
+    "actor" : "downstream",
+    "kind" : "apply",
+    "eventId" : "E3",
+    "eventType" : "ClaimPaid",
+    "status" : "Paid",
+    "paidCents" : 12000
+  }, {
+    "t" : 1561,
     "actor" : "downstream",
     "kind" : "ack",
     "eventId" : "E3",
     "eventType" : "ClaimPaid",
-    "attempt" : 2
+    "attempt" : 1
   } ],
   "record" : {
     "status" : "Paid",

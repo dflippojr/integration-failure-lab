@@ -68,4 +68,18 @@
     "paidCents" : 0,
     "applied" : [ "E1", "E2" ]
   }
+}, {
+  "scenarioId" : "6a-poison-message",
+  "record" : {
+    "status" : "Accepted",
+    "paidCents" : 0,
+    "applied" : [ "E1", "E2" ]
+  }
+}, {
+  "scenarioId" : "6b-poison-message-replay",
+  "record" : {
+    "status" : "Paid",
+    "paidCents" : 12000,
+    "applied" : [ "E1", "E2", "E3" ]
+  }
 } ]

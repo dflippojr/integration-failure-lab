@@ -59,13 +59,14 @@ export function describe(row, timeoutMs = TIMING.timeoutMs) {
     case 'stale': return `${e} is stale: skipped`;
     case 'buffer': return `${e} arrived early: buffered (${row.note})`;
     case 'release': return `${e} released from the buffer`;
+    case 'replay': return `Operator replays ${e} from the dead-letter queue (${row.note})`;
     case 'reject': return `${e} rejected (${row.note})`;
     default: return `${row.kind} ${e ?? ''}`;
   }
 }
 
 const TONE = {
-  timeout: 'warn', 'retry-scheduled': 'warn', 'ack-lost': 'bad', 'dead-letter': 'bad', drop: 'bad', reject: 'bad',
+  timeout: 'warn', 'retry-scheduled': 'warn', 'ack-lost': 'bad', 'dead-letter': 'bad', drop: 'bad', reject: 'bad', replay: 'guard',
   apply: 'good', dedupe: 'guard', stale: 'guard', buffer: 'guard', release: 'guard',
 };
 
@@ -74,6 +75,7 @@ function failureTags(f = {}) {
   if (f.timeout) tags.push(`${f.timeout.event} times out ${f.timeout.attempts === 'all' ? 'on every attempt' : `on attempt ${f.timeout.attempts.join(' and ')}`}`);
   if (f.duplicate) tags.push(`ack lost for ${f.duplicate.event}`);
   if (f.reorder) tags.push(`${f.reorder.event} delayed ${f.reorder.delayMs} ms`);
+  if (f.poison) tags.push(`${f.poison.event}: amount shipped as text (poison message)`);
   if (f.schemaChange) tags.push(`${f.schemaChange.event}: paidAmount renamed`);
   return tags.length ? tags : ['no failures'];
 }
@@ -86,6 +88,7 @@ function guardTags(g) {
     s.idempotency && 'idempotent consumer',
     s.ordering && 'ordered consumer',
     s.schemaValidation && 'schema validation',
+    s.replayAfterFix && 'replay after fix',
   ].filter(Boolean);
 }
 

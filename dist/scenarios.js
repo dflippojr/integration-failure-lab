@@ -259,5 +259,60 @@ export const SCENARIOS = [
         "paidCents": 0
       }
     }
+  },
+  {
+    "id": "6a-poison-message",
+    "order": 11,
+    "title": "Poison message, dead-letter queue only",
+    "summary": "The producer ships ClaimPaid with the amount as text; the consumer can never parse it, so every retry fails.",
+    "failures": {
+      "poison": {
+        "event": "ClaimPaid"
+      }
+    },
+    "safeguards": {
+      "retryLimit": 3,
+      "backoff": "exponential",
+      "deadLetter": true
+    },
+    "lesson": "Retrying a message that can never work only delays the failure. The dead-letter queue holds it, but nothing fixes the record until someone acts.",
+    "expect": {
+      "ok": false,
+      "visible": true,
+      "dlq": [
+        "E3"
+      ],
+      "record": {
+        "status": "Accepted",
+        "paidCents": 0
+      }
+    }
+  },
+  {
+    "id": "6b-poison-message-replay",
+    "order": 12,
+    "title": "Poison message, replay after the fix",
+    "summary": "Same poison message, but once the producer is fixed the dead-letter queue is replayed with a fresh attempt count.",
+    "failures": {
+      "poison": {
+        "event": "ClaimPaid"
+      }
+    },
+    "safeguards": {
+      "retryLimit": 3,
+      "backoff": "exponential",
+      "deadLetter": true,
+      "replayAfterFix": true
+    },
+    "lesson": "Separate \"retry later\" from \"never going to work\": park the poison message, fix the cause, then replay it.",
+    "expect": {
+      "ok": true,
+      "visible": false,
+      "dlq": [],
+      "record": {
+        "status": "Paid",
+        "paidCents": 12000
+      }
+    }
   }
 ];

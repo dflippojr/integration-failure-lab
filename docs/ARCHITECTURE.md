@@ -42,7 +42,7 @@ Let a visitor see why integration reliability is hard and what the standard fixe
 ## Simulated vs. executed
 
 - **The simulation is deterministic and runs in the browser.** It uses a virtual clock with fixed latencies and no randomness, so each scenario replays identically. It's plain JavaScript with no dependencies, so it embeds directly in the static site. The page says clearly that it's simulated.
-- **The executed runner** in `java/` is a Spring Boot 4.1.1 / Java 21 app. A producer emits the three events on a schedule; a delivery queue posts each to `POST /claims/{id}/events` with the JDK `HttpClient` (read timeout), retries with backoff, treats 422 as non-retryable, and dead-letters or drops what it gives up on. The claim-status controller injects faults server-side (holding a request past the timeout without processing it, or processing it and holding the ack) and applies the same consumer safeguards as the engine. Wall-clock timings are shorter than the simulation's (300 ms timeout, 150 ms backoff base) and every trace records them. `ScenarioRunnerTest` runs all ten scenarios over real HTTP and asserts the same expectations as the JS tests; recorded traces live in `executed/` and ship to the site via `build.mjs`.
+- **The executed runner** in `java/` is a Spring Boot 4.1.1 / Java 21 app. A producer emits the three events on a schedule; a delivery queue posts each to `POST /claims/{id}/events` with the JDK `HttpClient` (read timeout), retries with backoff, treats 422 as non-retryable, and dead-letters or drops what it gives up on. The claim-status controller injects faults server-side (holding a request past the timeout without processing it, or processing it and holding the ack) and applies the same consumer safeguards as the engine. Wall-clock timings are shorter than the simulation's (300 ms timeout, 150 ms backoff base) and every trace records them. `ScenarioRunnerTest` runs all twelve scenarios over real HTTP and asserts the same expectations as the JS tests; recorded traces live in `executed/` and ship to the site via `build.mjs`.
 
 ## Engine boundaries (so the simulator and the Java runner share scenarios)
 
@@ -56,16 +56,15 @@ A picker on first visit offers **Guided** (one scenario at a time, with expected
 
 ## Tests
 
-- `test/engine.test.js`: all ten scenarios against their `expect` blocks, determinism, and targeted trace assertions.
+- `test/engine.test.js`: all twelve scenarios against their `expect` blocks, determinism, and targeted trace assertions.
 - `test/ui.test.js`: accessibility structure of the UI (heading levels, labels, focusable trace region).
 - `test/build.test.js`: `scripts/build.mjs` accepts only its fixed target names.
-- `java/src/test/java/dev/dflippojr/lab/ScenarioRunnerTest.java`: runs all ten scenarios over real HTTP against the same expectations.
+- `java/src/test/java/dev/dflippojr/lab/ScenarioRunnerTest.java`: runs all twelve scenarios over real HTTP against the same expectations.
 
 Commands: `npm test` and `cd java && ./mvnw verify`.
 
-## Not built yet
+## Not built
 
-- Scenario 6 (poison message plus a DLQ replay tool), listed under "Not built yet" in [SCENARIOS.md](SCENARIOS.md).
 - No timing or load measurements. Nothing here claims how long a visit takes.
 
 ## History
