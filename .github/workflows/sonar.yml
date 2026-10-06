@@ -38,7 +38,7 @@ jobs:
             echo "::notice::SonarCloud analysis skipped: SONAR_TOKEN is absent. Configure the Actions secret for ordinary runs and the Dependabot secret for dependency PRs. No analysis or quality gate was evaluated."
             echo "SonarCloud analysis skipped because SONAR_TOKEN is absent. No analysis or quality gate was evaluated. Configure the repository Actions or Dependabot secret, as appropriate, then rerun the workflow." >> "$GITHUB_STEP_SUMMARY"
           fi
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         if: steps.token.outputs.available == 'true'
         with:
           # Full history so SonarCloud can blame lines and find the PR base.
