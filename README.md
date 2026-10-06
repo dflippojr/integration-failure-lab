@@ -18,6 +18,7 @@ npm test          # engine and UI tests
 cd java && ./mvnw verify   # executes all ten scenarios over real HTTP (Java 21)
 java -jar target/integration-failure-lab-0.1.0-SNAPSHOT.jar --lab.export-dir=../executed   # from java/, after verify: re-record traces
 npm run build     # from the repo root: assemble dist/ (engine, UI, CSS, generated scenarios.js and executed.js)
+# the tests fail if dist/ or executed/ drift from their sources, so run npm run build and commit dist/ after changing them
 python -m http.server 4180 --directory dist   # open http://127.0.0.1:4180
 ```
 
