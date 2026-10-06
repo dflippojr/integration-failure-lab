@@ -21,30 +21,50 @@ concurrency:
 jobs:
   sonar:
     runs-on: ubuntu-latest
-    # Secrets are not passed to pull requests from forks; skip rather than fail.
+    # Forks cannot access secrets. Same-repository Dependabot PRs use the
+    # Dependabot SONAR_TOKEN secret; other runs use the Actions secret.
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
     steps:
+      - name: Check SonarCloud token availability
+        id: token
+        shell: bash
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          if [ -n "$SONAR_TOKEN" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::SonarCloud analysis skipped: SONAR_TOKEN is absent. Configure the Actions secret for ordinary runs and the Dependabot secret for dependency PRs. No analysis or quality gate was evaluated."
+            echo "SonarCloud analysis skipped because SONAR_TOKEN is absent. No analysis or quality gate was evaluated. Configure the repository Actions or Dependabot secret, as appropriate, then rerun the workflow." >> "$GITHUB_STEP_SUMMARY"
+          fi
       - uses: actions/checkout@v4
+        if: steps.token.outputs.available == 'true'
         with:
           # Full history so SonarCloud can blame lines and find the PR base.
           fetch-depth: 0
       - uses: actions/setup-node@v4
+        if: steps.token.outputs.available == 'true'
         with:
           node-version: 22
       - name: Test engine and UI with coverage
+        if: steps.token.outputs.available == 'true'
         run: >
           node --test --experimental-test-coverage
           --test-reporter=spec --test-reporter-destination=stdout
           --test-reporter=lcov --test-reporter-destination=lcov.info
       - uses: actions/setup-java@v4
+        if: steps.token.outputs.available == 'true'
         with:
           distribution: temurin
           java-version: 21
           cache: maven
       - name: Build and test Java with coverage
+        if: steps.token.outputs.available == 'true'
         working-directory: java
         run: ./mvnw -B verify
       - name: Scan with SonarCloud
+        if: steps.token.outputs.available == 'true'
         uses: SonarSource/sonarqube-scan-action@v8
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
