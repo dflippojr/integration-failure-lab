@@ -1,8 +1,8 @@
-# Scenario matrix (draft v0)
+# Scenario matrix
 
 The expected record for every scenario is: claim `C-1001`, status `Paid`, paid amount `$120.00`, three events applied exactly once in order.
 
-## v1 scenarios
+## Built scenarios
 
 | # | Failure injected | Safeguards | Expected observed outcome | Lesson |
 | --- | --- | --- | --- | --- |
@@ -17,7 +17,7 @@ The expected record for every scenario is: claim `C-1001`, status `Paid`, paid a
 | 5a | Producer renames `paidAmount` to `amountPaid` on `ClaimPaid` | Schema validation off | Consumer reads a missing amount as zero; status `Paid` but paid `$0.00` | Lenient parsing turns a contract break into bad data. |
 | 5b | Same as 5a | Schema validation on | `ClaimPaid` rejected as non-retryable and sent to the DLQ; status stays `Accepted`, loudly | Fail at the boundary; a rejected message is fixable, a wrong record may not be noticed. |
 
-## Later (v1.1+)
+## Not built yet
 
 | # | Failure | Safeguard | Lesson |
 | --- | --- | --- | --- |
@@ -25,7 +25,11 @@ The expected record for every scenario is: claim `C-1001`, status `Paid`, paid a
 
 ## Acceptance criteria for v1
 
-- Every scenario above replays identically, with engine unit tests asserting the final record and the key trace rows.
-- Each run shows expected vs. observed and a one-sentence verdict.
-- It works with a keyboard and at 390 px width, and respects `prefers-reduced-motion` by showing the timeline without animation.
-- It's labeled "Simulated in your browser with synthetic data."
+Scenario files are `scenarios/<id>-*.json`. Tests: `npm test` and `cd java && ./mvnw verify`.
+
+- [x] Every scenario above replays identically, with engine unit tests asserting the final record and the key trace rows. Covered by `test/engine.test.js` (an expectation test and a determinism test per scenario, plus trace assertions for 1a, 1b, 2a, 2b, 3a, 3b, 4, 5b). The Java runner asserts the same records in `ScenarioRunnerTest.java`.
+- [x] Each run shows expected vs. observed and a one-sentence verdict. `judge` in `engine/engine.js` produces the verdict (tested in `test/engine.test.js`); `ui/lab.js` renders the comparison table. The rendered table itself has no automated test.
+- [ ] Works with a keyboard: partly automated. `test/ui.test.js` checks control labels and that the trace region is focusable; full keyboard operation is manual.
+- [ ] Works at 390 px width: manual. `ui/lab.css` has a `max-width: 640px` rule, but no test checks the layout.
+- [ ] Respects `prefers-reduced-motion` by showing the timeline without animation: implemented in `ui/lab.js`, not covered by a test.
+- [x] Labeled "Simulated in your browser with synthetic data." The note is `SIM_NOTE` in `ui/lab.js`, which extends that wording with the timing; no test asserts the text.
