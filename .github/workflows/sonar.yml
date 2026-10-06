@@ -43,7 +43,7 @@ jobs:
         with:
           # Full history so SonarCloud can blame lines and find the PR base.
           fetch-depth: 0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         if: steps.token.outputs.available == 'true'
         with:
           node-version: 22
