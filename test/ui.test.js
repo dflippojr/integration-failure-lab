@@ -17,13 +17,14 @@ class FakeElement {
     this.classList = { add: c => { this.className = `${this.className} ${c}`.trim(); } };
   }
   setAttribute(k, v) { this.attributes[k] = String(v); if (k === 'hidden') this.hidden = true; }
+  removeAttribute(k) { delete this.attributes[k]; }
   getAttribute(k) { return this.attributes[k] ?? null; }
   addEventListener(type, fn) { this.listeners[type] = fn; }
   append(...nodes) { this.children.push(...nodes); }
   replaceChildren(...nodes) { this.children = nodes; }
   focus() {}
   all() { return this.children.flatMap(c => (c instanceof FakeElement ? [c, ...c.all()] : [])); }
-  querySelector(sel) { return this.all().find(e => sel.split(',').some(s => e.tagName === s.trim().toUpperCase())) ?? null; }
+  querySelector(sel) { return this.all().find(e => sel.split(',').some(s => (s.trim().startsWith('.') ? e.className.split(' ').includes(s.trim().slice(1)) : e.tagName === s.trim().toUpperCase()))) ?? null; }
   find(pred) { return this.all().filter(pred); }
   text() { return this.children.map(c => (c instanceof FakeElement ? c.text() : String(c))).join(''); }
 }
@@ -40,6 +41,7 @@ before(async () => {
   ({ mountLab } = await import('../ui/lab.js'));
   ({ SCENARIOS } = await import('../dist-test/scenarios.js'));
   ({ EXECUTED } = await import('../dist-test/executed.js'));
+  globalThis.__loadRecordings = () => EXECUTED;
 });
 
 const mount = (opts, mode) => {
@@ -126,7 +128,7 @@ function assertFinal(root, result) {
 }
 
 // Advance actual playback callbacks deterministically without waiting on wall time.
-function animated(fn) {
+async function animated(fn) {
   const originalSet = globalThis.setInterval;
   const originalClear = globalThis.clearInterval;
   const timers = new Map();
@@ -140,7 +142,7 @@ function animated(fn) {
     }
     assert.equal(timers.size, 0);
   };
-  try { fn(drain, timers); }
+  try { await fn(drain, timers); }
   finally {
     globalThis.setInterval = originalSet;
     globalThis.clearInterval = originalClear;
@@ -151,14 +153,14 @@ function animated(fn) {
 for (const source of ['sim', 'exec']) {
   for (const id of ['1b', '1c', '6a', '6b']) {
     for (const motion of ['reduced', 'animated']) {
-      test(`${id} ${source}: final contents and historical counters with ${motion} playback`, () => {
-        const check = drain => {
+      test(`${id} ${source}: final contents and historical counters with ${motion} playback`, async () => {
+        const check = async drain => {
           const root = mount(undefined, 'guided');
           chooseScenario(root, id);
           chooseSource(root, source);
           const scenario = SCENARIOS.find(s => s.id.startsWith(`${id}-`));
           const result = source === 'sim' ? run(scenario) : EXECUTED[scenario.id];
-          clickRun(root);
+          await clickRun(root);
           if (drain) {
             assert.equal(byClass(root, 'ifl-final-state').hidden, true);
             assert.equal(byClass(root, 'ifl-final-state').children.length, 0);
@@ -170,8 +172,8 @@ for (const source of ['sim', 'exec']) {
           assert.equal(parked.children[1].textContent, 1);
           if (id === '6b') assert.equal(result.dlq.length, 0);
         };
-        if (motion === 'animated') animated(check);
-        else check();
+        if (motion === 'animated') await animated(check);
+        else await check();
       });
     }
   }
@@ -224,7 +226,7 @@ for (const switchKind of ['scenario', 'source', 'mode']) {
   }
 }
 
-test('recorded entry values are rendered as text without HTML injection', () => {
+test('recorded entry values are rendered as text without HTML injection', async () => {
   const scenario = SCENARIOS.find(s => s.id.startsWith('1b-'));
   const result = EXECUTED[scenario.id];
   const original = result.dlq;
@@ -234,7 +236,7 @@ test('recorded entry values are rendered as text without HTML injection', () => 
     const root = mount(undefined, 'guided');
     chooseScenario(root, '1b');
     chooseSource(root, 'exec');
-    clickRun(root);
+    await clickRun(root);
     assertFinal(root, result);
     const panel = byClass(root, 'ifl-final-state');
     assert.equal(panel.find(e => e.tagName === 'IMG').length, 0);

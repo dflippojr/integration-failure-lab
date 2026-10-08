@@ -8,9 +8,21 @@ const SIBLINGS = {
   './executed.js': new URL('../dist-test/executed.js', import.meta.url).href,
 };
 
+let request = 0;
+
 export async function resolve(specifier, context, nextResolve) {
-  if (context.parentURL === LAB && Object.hasOwn(SIBLINGS, specifier)) {
-    return { url: SIBLINGS[specifier], shortCircuit: true };
+  if (context.parentURL?.split('?')[0] === LAB && Object.hasOwn(SIBLINGS, specifier)) {
+    const url = SIBLINGS[specifier] + (specifier === './executed.js' ? `?request=${++request}` : '');
+    return { url, shortCircuit: true };
   }
   return nextResolve(specifier, context);
+}
+
+// Only the UI's dynamic import is mocked; tests read the unchanged recording fixture directly.
+export async function load(url, context, nextLoad) {
+  if (url.startsWith(SIBLINGS['./executed.js'] + '?')) {
+    return { format: 'module', shortCircuit: true,
+      source: 'export const EXECUTED = await globalThis.__loadRecordings();' };
+  }
+  return nextLoad(url, context);
 }
