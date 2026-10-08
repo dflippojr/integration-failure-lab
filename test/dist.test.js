@@ -12,6 +12,16 @@ const root = fileURLToPath(new URL('..', import.meta.url));
 const GENERATED = ['engine.js', 'lab.js', 'lab.css', 'scenarios.js', 'executed.js'];
 const norm = s => s.replace(/\r\n/g, '\n');
 const readJson = (...p) => JSON.parse(readFileSync(join(root, ...p), 'utf8'));
+const scenarios = readdirSync(join(root, 'scenarios')).filter(f => f.endsWith('.json'))
+  .map(file => ({ file, data: readJson('scenarios', file) }));
+const recordings = readdirSync(join(root, 'executed')).filter(f => f.endsWith('.json') && f !== 'index.json')
+  .map(file => ({ file, data: readJson('executed', file) }));
+const recordingByScenarioId = new Map();
+for (const recording of recordings) {
+  if (!recordingByScenarioId.has(recording.data.scenarioId)) {
+    recordingByScenarioId.set(recording.data.scenarioId, recording);
+  }
+}
 // generatedAt is a recording timestamp, not content.
 const stripStamps = s => s.replace(/"generatedAt":\s*"[^"]*"/g, '"generatedAt":""');
 
@@ -36,15 +46,13 @@ for (const file of GENERATED) {
 }
 
 test('every scenario has exactly one matching recording, and none are orphaned', () => {
-  const ids = readdirSync(join(root, 'scenarios')).filter(f => f.endsWith('.json'))
-    .map(f => readJson('scenarios', f).id);
-  const recordings = readdirSync(join(root, 'executed')).filter(f => f.endsWith('.json') && f !== 'index.json');
-  const recordedIds = recordings.map(f => readJson('executed', f).scenarioId);
+  const ids = scenarios.map(({ data }) => data.id);
+  const recordedIds = recordings.map(({ data }) => data.scenarioId);
   for (const id of ids) {
-    assert.ok(recordings.some(f => f.startsWith(`${id}`) || f === `${id}.json`) && recordedIds.includes(id),
+    assert.ok(recordings.some(({ file }) => file.startsWith(`${id}`) || file === `${id}.json`) && recordedIds.includes(id),
       `Scenario ${id} has no executed/${id}-*.json recording.`);
   }
-  for (const [i, f] of recordings.entries()) {
+  for (const [i, { file: f }] of recordings.entries()) {
     assert.ok(ids.includes(recordedIds[i]), `executed/${f} is orphaned: no scenario "${recordedIds[i]}".`);
     assert.ok(f.startsWith(recordedIds[i]), `executed/${f} should be named for scenario "${recordedIds[i]}".`);
   }
@@ -52,13 +60,12 @@ test('every scenario has exactly one matching recording, and none are orphaned',
 });
 
 test("each recorded record matches its scenario's expect.record", () => {
-  for (const f of readdirSync(join(root, 'scenarios')).filter(f => f.endsWith('.json'))) {
-    const scenario = readJson('scenarios', f);
-    const rec = readdirSync(join(root, 'executed')).find(g => g !== 'index.json' && readJson('executed', g).scenarioId === scenario.id);
+  for (const { file: f, data: scenario } of scenarios) {
+    const rec = recordingByScenarioId.get(scenario.id);
     if (!rec) continue; // reported by the coverage test
-    const recorded = readJson('executed', rec).record;
+    const recorded = rec.data.record;
     for (const [k, v] of Object.entries(scenario.expect.record)) {
-      assert.deepEqual(recorded[k], v, `executed/${rec}: record.${k} differs from scenarios/${f} expect.record.${k}; re-record with the Java runner.`);
+      assert.deepEqual(recorded[k], v, `executed/${rec.file}: record.${k} differs from scenarios/${f} expect.record.${k}; re-record with the Java runner.`);
     }
   }
 });
@@ -66,9 +73,8 @@ test("each recorded record matches its scenario's expect.record", () => {
 test('recording manifest contains exactly the actual recording keys', () => {
   const generated = readFileSync(join(tmp, 'dist', 'scenarios.js'), 'utf8');
   const ids = JSON.parse(generated.match(/export const RECORDING_IDS = (.*);/)[1]);
-  const recordings = readdirSync(join(root, 'executed')).filter(f => f.endsWith('.json') && f !== 'index.json')
-    .map(f => readJson('executed', f).scenarioId);
-  assert.deepEqual(ids.sort(), recordings.sort());
+  const recordedIds = recordings.map(({ data }) => data.scenarioId);
+  assert.deepEqual(ids.sort(), recordedIds.sort());
   assert.ok(!generated.includes('generatedAt'), 'manifest must not contain recording bodies');
 });
 
