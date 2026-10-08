@@ -190,7 +190,7 @@ export function mountLab(root, { headingLevel = 3 } = {}) {
     output.replaceChildren();
     output.hidden = true;
     status.hidden = false;
-    status.replaceChildren('Loading recorded replay?');
+    status.replaceChildren('Loading recorded replay...');
     try {
       const executed = await loadRecordings();
       if (state.pending !== request) return;

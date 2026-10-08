@@ -6,6 +6,7 @@ import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } fro
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { gzipSync } from 'node:zlib';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const GENERATED = ['engine.js', 'lab.js', 'lab.css', 'scenarios.js', 'executed.js'];
@@ -60,4 +61,43 @@ test("each recorded record matches its scenario's expect.record", () => {
       assert.deepEqual(recorded[k], v, `executed/${rec}: record.${k} differs from scenarios/${f} expect.record.${k}; re-record with the Java runner.`);
     }
   }
+});
+
+test('recording manifest contains exactly the actual recording keys', () => {
+  const generated = readFileSync(join(tmp, 'dist', 'scenarios.js'), 'utf8');
+  const ids = JSON.parse(generated.match(/export const RECORDING_IDS = (.*);/)[1]);
+  const recordings = readdirSync(join(root, 'executed')).filter(f => f.endsWith('.json') && f !== 'index.json')
+    .map(f => readJson('executed', f).scenarioId);
+  assert.deepEqual(ids.sort(), recordings.sort());
+  assert.ok(!generated.includes('generatedAt'), 'manifest must not contain recording bodies');
+});
+
+test('manifest follows recording keys when a future scenario has no recording', () => {
+  const recording = readdirSync(join(tmp, 'executed')).find(f => f.endsWith('.json') && f !== 'index.json');
+  const id = JSON.parse(readFileSync(join(tmp, 'executed', recording), 'utf8')).scenarioId;
+  // Delete only the named recording in this test-owned private copy.
+  rmSync(join(tmp, 'executed', recording));
+  const built = spawnSync(process.execPath, [join(tmp, 'scripts', 'build.mjs'), 'dist'], { encoding: 'utf8' });
+  assert.equal(built.status, 0, built.stderr);
+  const generated = readFileSync(join(tmp, 'dist', 'scenarios.js'), 'utf8');
+  const ids = JSON.parse(generated.match(/export const RECORDING_IDS = (.*);/)[1]);
+  assert.equal(ids.length, 11);
+  assert.ok(!ids.includes(id));
+  assert.ok(generated.includes(id), 'the unrecorded scenario remains available to simulate');
+});
+
+test('initial static UI graph excludes recordings and beats the issue byte baseline', () => {
+  const modules = new Map();
+  function visit(file) {
+    if (modules.has(file)) return;
+    const source = readFileSync(join(root, 'dist', file), 'utf8');
+    // Compare Windows CRLF bytes for every module, including generated modules.
+    modules.set(file, Buffer.from(source.replace(/\r?\n/g, '\r\n')));
+    for (const match of source.matchAll(/^import .* from ['"]\.\/(.+?)['"];$/gm)) visit(match[1]);
+  }
+  visit('lab.js');
+  assert.deepEqual([...modules.keys()].sort(), ['engine.js', 'lab.js', 'scenarios.js']);
+  const bytes = [...modules.values()];
+  assert.ok(bytes.reduce((sum, b) => sum + b.length, 0) < 63161);
+  assert.ok(bytes.reduce((sum, b) => sum + gzipSync(b, { level: 9 }).length, 0) < 12993);
 });

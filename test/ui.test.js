@@ -29,8 +29,8 @@ class FakeElement {
   text() { return this.children.map(c => (c instanceof FakeElement ? c.text() : String(c))).join(''); }
 }
 
-let mountLab, SCENARIOS, EXECUTED;
-import { run } from '../engine/engine.js';
+let mountLab, SCENARIOS, EXECUTED, RECORDING_IDS, describe;
+import { run, judge } from '../engine/engine.js';
 before(async () => {
   globalThis.Node = FakeElement;
   globalThis.document = { createElement: tag => new FakeElement(tag) };
@@ -38,8 +38,8 @@ before(async () => {
   execFileSync(process.execPath, [fileURLToPath(new URL('../scripts/build.mjs', import.meta.url)), 'test']);
   // Import the source ui/lab.js, not a built copy, so coverage lands on it; see lab-loader.mjs.
   register('./lab-loader.mjs', import.meta.url);
-  ({ mountLab } = await import('../ui/lab.js'));
-  ({ SCENARIOS } = await import('../dist-test/scenarios.js'));
+  ({ mountLab, describe } = await import('../ui/lab.js'));
+  ({ SCENARIOS, RECORDING_IDS } = await import('../dist-test/scenarios.js'));
   ({ EXECUTED } = await import('../dist-test/executed.js'));
   globalThis.__loadRecordings = () => EXECUTED;
 });
@@ -242,4 +242,215 @@ test('recorded entry values are rendered as text without HTML injection', async 
     assert.equal(panel.find(e => e.tagName === 'IMG').length, 0);
     for (const value of panel.find(e => e.tagName === 'DD')) assert.deepEqual(value.children, [markup]);
   } finally { result.dlq = original; }
+});
+
+function deferred() {
+  let resolve, reject;
+  const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
+  return { promise, resolve, reject };
+}
+async function freshLab(load) {
+  globalThis.__loadRecordings = load;
+  globalThis.__resetRecordings();
+  return mountLab;
+}
+const rootFor = mount => {
+  const root = new FakeElement('div');
+  mount(root).setMode('guided');
+  return root;
+};
+const replayStatus = root => root.find(e => e.getAttribute('aria-label') === 'Replay status')[0];
+const runButton = root => root.find(e => e.className.includes('ifl-run'))[0];
+
+test('recordings load only on executed Run and are shared across reruns and mounts', async () => {
+  let imports = 0;
+  const mountFresh = await freshLab(() => { imports++; return EXECUTED; });
+  const originalStorage = globalThis.localStorage;
+  const originalFormData = globalThis.FormData;
+  globalThis.localStorage = { getItem: key => key === 'ifl-source' ? 'exec' : 'guided', setItem() {} };
+  try {
+    const picker = new FakeElement('div');
+    globalThis.localStorage = undefined;
+    mountFresh(picker);
+    assert.ok(byClass(picker, 'ifl-picker'));
+    assert.equal(imports, 0, 'fresh mount does not load recordings');
+    globalThis.localStorage = { getItem: key => key === 'ifl-source' ? 'exec' : 'guided', setItem() {} };
+    const root = new FakeElement('div');
+    const lab = mountFresh(root);
+    assert.equal(imports, 0, 'saved executed preference must not load recordings');
+    chooseSource(root, 'sim');
+    await clickRun(root);
+    assert.equal(imports, 0);
+    lab.setMode('free');
+    globalThis.FormData = class { get(name) { return { retryLimit: '3', backoff: 'exponential' }[name] ?? null; } };
+    byClass(root, 'ifl-form').listeners.submit({ preventDefault() {} });
+    assert.equal(imports, 0);
+    lab.setMode(null);
+    assert.equal(imports, 0, 'mode picker does not load recordings');
+    lab.setMode('guided');
+    chooseSource(root, 'exec');
+    assert.equal(imports, 0, 'source selection does not load recordings');
+    await clickRun(root);
+    assert.equal(imports, 1);
+    await clickRun(root);
+    const second = rootFor(mountFresh);
+    await clickRun(second);
+    assert.equal(imports, 1, 'successful import persists across mounts');
+  } finally {
+    globalThis.localStorage = originalStorage;
+    globalThis.FormData = originalFormData;
+  }
+});
+
+for (const change of ['mode', 'scenario', 'source']) {
+  for (const fails of [false, true]) {
+    test(`pending replay ignores stale ${fails ? 'failure' : 'success'} after ${change} change`, async () => {
+      const load = deferred(), started = deferred();
+      let imports = 0;
+      const mountFresh = await freshLab(() => { imports++; started.resolve(); return load.promise; });
+      const root = rootFor(mountFresh);
+      chooseSource(root, 'exec');
+      const pending = clickRun(root);
+      await started.promise;
+      assert.equal(runButton(root).getAttribute('disabled'), '');
+      const status = replayStatus(root);
+      assert.equal(status.hidden, false);
+      assert.equal(status.getAttribute('role'), 'status');
+      assert.match(status.text(), /Loading recorded replay/);
+      await clickRun(root); // Programmatic repeated activation is also guarded.
+      assert.equal(imports, 1);
+      if (change === 'mode') root.find(e => e.text() === 'Switch to free-form')[0].listeners.click();
+      if (change === 'scenario') chooseScenario(root, '6b');
+      if (change === 'source') chooseSource(root, 'sim');
+      if (fails) load.reject(new Error('offline'));
+      else load.resolve(EXECUTED);
+      await pending;
+      assert.equal(byClass(root, 'ifl-output').hidden, true);
+      assert.equal(byClass(root, 'ifl-output').children.length, 0);
+      assert.equal(status.hidden, true);
+      assert.equal(status.children.length, 0);
+      assert.equal(runButton(root).getAttribute('disabled'), null);
+      if (!fails && change === 'scenario') {
+        await clickRun(root);
+        assertFinal(root, EXECUTED[SCENARIOS.find(s => s.id.startsWith('6b-')).id]);
+        assert.equal(imports, 1);
+      }
+    });
+  }
+}
+
+test('failed import releases controls, offers retry, and leaves simulation usable', async () => {
+  const load = deferred(), started = deferred();
+  let imports = 0;
+  const mountFresh = await freshLab(() => {
+    imports++;
+    started.resolve();
+    return imports === 1 ? load.promise : EXECUTED;
+  });
+  const root = rootFor(mountFresh);
+  chooseSource(root, 'exec');
+  const pending = clickRun(root);
+  await started.promise;
+  load.reject(new Error('offline'));
+  await pending;
+  assert.equal(runButton(root).getAttribute('disabled'), null);
+  assert.equal(byClass(root, 'ifl-output').hidden, true);
+  const status = replayStatus(root);
+  assert.equal(status.hidden, false);
+  assert.match(status.text(), /Recorded replay unavailable.*still simulate/);
+  const simulation = rootFor(mountFresh);
+  chooseSource(simulation, 'sim');
+  await clickRun(simulation);
+  assertFinal(simulation, run(SCENARIOS[0]));
+  assert.equal(imports, 1);
+  await status.find(e => e.text() === 'Retry replay')[0].listeners.click();
+  assert.equal(imports, 2);
+  assert.equal(status.hidden, true);
+  assert.match(root.find(e => e.className === 'ifl-note').at(-1).text(), /Recorded from a real run/);
+  assertFinal(root, EXECUTED[SCENARIOS[0].id]);
+  chooseSource(root, 'sim');
+  await clickRun(root);
+  assert.match(root.find(e => e.className === 'ifl-note').at(-1).text(), /Simulated in your browser/);
+  assertFinal(root, run(SCENARIOS[0]));
+});
+
+test('manifest omissions offer only simulation even with a saved executed preference', async () => {
+  let imports = 0;
+  const mountFresh = await freshLab(() => { imports++; return EXECUTED; });
+  const id = RECORDING_IDS.shift();
+  const originalStorage = globalThis.localStorage;
+  globalThis.localStorage = { getItem: key => key === 'ifl-source' ? 'exec' : 'guided', setItem() {} };
+  try {
+    const root = rootFor(mountFresh);
+    assert.equal(byClass(root, 'ifl-source'), undefined);
+    assert.match(runButton(root).text(), /Run scenario/);
+    await clickRun(root);
+    assert.equal(imports, 0);
+    assertFinal(root, run(SCENARIOS[0]));
+  } finally { RECORDING_IDS.unshift(id); globalThis.localStorage = originalStorage; }
+});
+
+for (const motion of ['reduced', 'animated']) {
+  test(`all twelve recorded traces, records, verdicts and provenance survive ${motion} playback`, async () => {
+    globalThis.__loadRecordings = () => EXECUTED;
+    const check = async drain => {
+      for (const scenario of SCENARIOS) {
+        const root = mount(undefined, 'guided');
+        chooseScenario(root, scenario.id.split('-')[0]);
+        chooseSource(root, 'exec');
+        await clickRun(root);
+        if (drain) drain();
+        const result = EXECUTED[scenario.id];
+        assertFinal(root, result);
+        const rows = byClass(root, 'ifl-trace').children;
+        assert.deepEqual(rows.map(row => row.children[2].text()), result.trace.map(row => describe(row, result.timing.timeoutMs)));
+        const record = byClass(root, 'ifl-record');
+        assert.deepEqual(record.children[1].children.map(row => row.children[2].text()), [
+          result.record.status, `$${(result.record.paidCents / 100).toFixed(2)}`, result.record.applied.join(' \u2192 ') || 'none',
+        ]);
+        const verdict = judge(result.record, result);
+        assert.equal(byClass(root, 'ifl-verdict-head').text(), verdict.summary);
+        const note = root.find(e => e.className === 'ifl-note').at(-1).text();
+        assert.ok(note.includes(result.runtime.springBoot));
+        assert.ok(note.includes(result.runtime.java.split('+')[0]));
+        assert.ok(note.includes(result.runtime.transport));
+        assert.ok(note.includes(`${result.timing.timeoutMs} ms ack timeout`));
+        assert.ok(note.includes(`${result.timing.backoffBaseMs} ms backoff base`));
+        assert.match(note, /Recorded from a real run.*replayed here.*Synthetic data/);
+        assert.equal(byClass(root, 'ifl-stats').children[0].children[0], 'Wall-clock time ');
+      }
+    };
+    if (motion === 'animated') await animated(check);
+    else await check();
+  });
+}
+
+test('a new replay and another mount share the pending import without playing the old scenario', async () => {
+  const load = deferred(), started = deferred();
+  let imports = 0;
+  const mountFresh = await freshLab(() => { imports++; started.resolve(); return load.promise; });
+  const root = rootFor(mountFresh);
+  chooseSource(root, 'exec');
+  const old = clickRun(root);
+  await started.promise;
+  chooseScenario(root, '6b');
+  const current = clickRun(root);
+  const second = rootFor(mountFresh);
+  chooseSource(second, 'exec');
+  const otherMount = clickRun(second);
+  load.resolve(EXECUTED);
+  await Promise.all([old, current, otherMount]);
+  assert.equal(imports, 1);
+  assertFinal(root, EXECUTED[SCENARIOS.find(s => s.id.startsWith('6b-')).id]);
+  assertFinal(second, EXECUTED[SCENARIOS[0].id]);
+});
+
+test('an advertised recording missing from the loaded module fails explicitly', async () => {
+  const mountFresh = await freshLab(() => ({}));
+  const root = rootFor(mountFresh);
+  chooseSource(root, 'exec');
+  await clickRun(root);
+  assert.match(replayStatus(root).text(), /Recorded replay unavailable/);
+  assert.equal(byClass(root, 'ifl-output').hidden, true);
+  assert.equal(runButton(root).getAttribute('disabled'), null);
 });

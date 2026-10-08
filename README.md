@@ -26,6 +26,27 @@ The runner reads scenarios from `../scenarios` relative to where it starts, so r
 
 The website vendors the bundle into `public/lab/` (`node scripts/build.mjs site`, which writes to `../personal-website/public/lab`, so the website checkout must sit next to this repo). The build takes a fixed target name, not a path: `dist` (the default), `site`, or `test` (the git-ignored `dist-test/` the UI tests use); anything else exits with an error. Mount with `mountLab(element, { headingLevel })`: the scenario title is an `h3` by default, for a lab placed under an `h2`; pass the level that fits your page (2-6).
 
+Guided mode loads `executed.js` only when **Replay real run** is activated. Selecting Executed or restoring a saved `ifl-source=exec` preference does not fetch recordings. A small `RECORDING_IDS` manifest in generated `scenarios.js` comes from actual recording keys, so scenarios without recordings remain simulation-only. Pending loads share one import across mounts and disable repeated Run requests; changing mode, scenario, or source discards the old playback request. Successful imports stay cached. Loading and failures appear in the named **Replay status** region; failures offer **Retry replay**, and simulation remains usable.
+
+The initial static JS graph is now `lab.js ? engine.js, scenarios.js`; `executed.js` is dynamically imported on demand. Offline sizes measured on Windows with Node v24.18.0, unchanged recording fixtures, consistent CRLF line endings for all modules, and each module compressed separately using gzip level 9:
+
+| Initial module | Raw bytes | gzip-9 bytes |
+| --- | ---: | ---: |
+| lab.js (including loader) | 20,906 | 6,698 |
+| engine.js | 10,413 | 3,442 |
+| scenarios.js (including manifest) | 8,389 | 1,814 |
+| **Total** | **39,708** | **11,954** |
+
+Against issue #26's `5b059c1` baseline (63,161 raw / 12,993 gzip-9), the net reduction is **23,453 raw / 1,039 gzip-9 bytes**, including loader, manifest, and the intervening final-state UI. Against this branch's fresh `origin/main` base `9256893` (64,450 raw / 13,323 gzip-9), the reduction is **24,742 raw / 1,369 gzip-9 bytes**. Deferred `executed.js` remains 26,626 raw / 1,865 gzip-9 bytes with this normalization. These are offline asset sizes, not production transfer or latency measurements.
+
+To reproduce the new totals from the repository root (normalize generated LF and checked-out CRLF consistently):
+
+```sh
+node --input-type=module -e 'import {readFileSync} from "node:fs"; import {gzipSync} from "node:zlib"; for (const f of ["lab.js","engine.js","scenarios.js"]) { const b=Buffer.from(readFileSync("dist/"+f,"utf8").replace(/\r?\n/g,"\r\n")); console.log(f,b.length,gzipSync(b,{level:9}).length); }'
+```
+
+The drift tests also traverse the static imports, check that recordings are absent, and verify both normalized totals remain below the issue baseline.
+
 All data is synthetic. No real payers, patients, or PHI.
 
 ### CI
