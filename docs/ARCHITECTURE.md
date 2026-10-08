@@ -31,11 +31,12 @@ Let a visitor see why integration reliability is hard and what the standard fixe
 | Safeguard | Ordering (buffer when `seq` skips; drop stale `seq`) | off |
 | Safeguard | Schema validation at the consumer (reject, don't guess) | off |
 | Safeguard | Dead-letter queue for messages that give up | on |
+| Safeguard | Replay the DLQ once after the producer fix (scenario 6b; not a Free-form control) | off |
 
 ## Outputs the visitor sees
 
 1. **Timeline:** each hop on a virtual clock, retries visibly stacking up.
-2. **Queue panel:** in-flight, retrying, and DLQ counts.
+2. **Queue panel:** cumulative counters (attempts, retries, parked / dropped events) while the trace plays, then the final DLQ, dropped and ordering-buffer contents (see below).
 3. **Final claim record vs. expected record**, with the differences highlighted, for example "paid twice: $240 instead of $120".
 4. **One-sentence verdict** plus the tradeoff of the safeguard that fixed it. For example, idempotency needs a dedupe store and a retention window, and buffering for order adds latency.
 
@@ -57,7 +58,8 @@ A picker on first visit offers **Guided** (one scenario at a time, with expected
 ## Tests
 
 - `test/engine.test.js`: all twelve scenarios against their `expect` blocks, determinism, and targeted trace assertions.
-- `test/ui.test.js`: accessibility structure of the UI (heading levels, labels, focusable trace region).
+- `test/ui.test.js`: accessibility structure of the UI (heading levels, labels, focusable trace region), final queue snapshots, and deferred loading of recordings.
+- `test/dist.test.js`: `dist/` matches `npm run build` output, every scenario has exactly one recording, and the initial static import graph excludes recordings and stays under the byte baseline.
 - `test/build.test.js`: `scripts/build.mjs` accepts only its fixed target names.
 - `java/src/test/java/dev/dflippojr/lab/ScenarioRunnerTest.java`: runs all twelve scenarios over real HTTP against the same expectations.
 

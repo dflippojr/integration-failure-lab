@@ -23,7 +23,7 @@ The expected record for every scenario is: claim `C-1001`, status `Paid`, paid a
 
 Scenario files are `scenarios/<id>-*.json`. Tests: `npm test` and `cd java && ./mvnw verify`.
 
-- [x] Every scenario above replays identically, with engine unit tests asserting the final record and the key trace rows. Covered by `test/engine.test.js` (an expectation test and a determinism test per scenario, plus trace assertions for 1a, 1b, 2a, 2b, 3a, 3b, 4, 5b). The Java runner asserts the same records in `ScenarioRunnerTest.java`.
+- [x] Every scenario above replays identically, with engine unit tests asserting the final record and the key trace rows. Covered by `test/engine.test.js` (an expectation test and a determinism test per scenario, plus trace assertions for 1a, 1b, 2a, 2b, 3a, 3b, 4, 5b, 6a, 6b). The Java runner asserts the same records in `ScenarioRunnerTest.java`.
 - [x] Each run shows expected vs. observed and a one-sentence verdict. `judge` in `engine/engine.js` produces the verdict (tested in `test/engine.test.js`); `ui/lab.js` renders the comparison table. The rendered table itself has no automated test.
 - [ ] Works with a keyboard: partly automated. `test/ui.test.js` checks control labels and that the trace region is focusable; full keyboard operation is manual.
 - [ ] Works at 390 px width: manual. `ui/lab.css` has a `max-width: 640px` rule, but no test checks the layout.
