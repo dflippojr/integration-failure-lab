@@ -77,3 +77,13 @@ Planning notes, kept for context. The sections above describe the current system
 - A virtual clock, not real waiting, so a 30-second retry storm plays in about 3 seconds.
 - Decided with Daniel (2026-09-29): the v2 stack is a Java/Spring Boot producer and consumer that run the same `scenarios/*.json` and export traces in the engine's trace format; the schema change is in v1 (scenarios 5a/5b); Guided/Free-form mode picker. All three are implemented.
 - The repo is public and MIT licensed.
+
+### Final queue snapshots
+
+The UI displays the result's final `dlq`, `dropped`, and `buffered` snapshots after
+trace playback finishes, in both Guided sources and Free-form simulation. These
+are final contents, not live in-flight counts. DLQ and dropped entries include
+event ID, type, reason and delivery attempts; buffered entries include ID, type
+and sequence. Empty groups explicitly show zero and Empty. The animated trace's
+Parked / dropped events counter remains cumulative: a successful replay can leave
+one historical parked event and an empty final DLQ.
