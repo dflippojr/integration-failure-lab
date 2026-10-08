@@ -37,7 +37,7 @@ The initial static JS graph is now `lab.js ? engine.js, scenarios.js`; `executed
 | scenarios.js (including manifest) | 8,389 | 1,814 |
 | **Total** | **39,708** | **11,954** |
 
-Against issue #26's `5b059c1` baseline (63,161 raw / 12,993 gzip-9), the net reduction is **23,453 raw / 1,039 gzip-9 bytes**, including loader, manifest, and the intervening final-state UI. Against this branch's fresh `origin/main` base `9256893` (64,450 raw / 13,323 gzip-9), the reduction is **24,742 raw / 1,369 gzip-9 bytes**. Deferred `executed.js` remains 26,626 raw / 1,865 gzip-9 bytes with this normalization. These are offline asset sizes, not production transfer or latency measurements.
+Against issue #26's `5b059c1` baseline (63,161 raw / 12,993 gzip-9), the net reduction is **23,453 raw / 1,039 gzip-9 bytes**, including loader, manifest, and the intervening final-state UI. Against the `9256893` base (64,450 raw / 13,323 gzip-9), the reduction is **24,742 raw / 1,369 gzip-9 bytes**. Deferred `executed.js` remains 26,626 raw / 1,865 gzip-9 bytes with this normalization. These are offline asset sizes, not production transfer or latency measurements.
 
 To reproduce the new totals from the repository root (normalize generated LF and checked-out CRLF consistently):
 
@@ -56,7 +56,7 @@ GitHub Actions runs two workflows on pushes and pull requests:
 - `.github/workflows/test.yml`: `npm test` (Node 22) and `./mvnw -B verify` in `java/` (Java 21).
 - `.github/workflows/sonar.yml`: SonarCloud analysis with coverage (lcov from the Node test runner, JaCoCo from the Java module). It runs on pushes to `main` and on pull requests from this repo, and fails when the quality gate fails. Project keys are in `sonar-project.properties`.
 
-Dependabot checks weekly for Maven updates in `/java`, npm updates at `/`, and GitHub Actions updates at `/`, as configured in `.github/dependabot.yml`. The root `package.json` currently has no npm dependencies, so that entry may produce no update PRs. Version updates start when this configuration reaches the default branch.
+Dependabot checks weekly for Maven updates in `/java`, npm updates at `/`, and GitHub Actions updates at `/`, as configured in `.github/dependabot.yml`. The root `package.json` currently has no npm dependencies, so that entry may produce no update PRs.
 
 SonarCloud requires an authorized analysis token named `SONAR_TOKEN` in repository **Actions** secrets for ordinary runs and separately in **Dependabot** secrets for Dependabot PRs (Settings → Secrets and variables → Dependabot → New repository secret). GitHub supplies the appropriate secret store through the same workflow reference; Actions secrets are unavailable to Dependabot-triggered runs. Fork PRs remain excluded. If the token is absent, the SonarCloud workflow emits a notice and a job summary and skips analysis cleanly; this is not a successful analysis or a passing quality gate. The separate test workflow still runs.
 
