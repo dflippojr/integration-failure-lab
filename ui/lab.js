@@ -249,11 +249,12 @@ export function mountLab(root, { headingLevel = 3 } = {}) {
       h('span', {}, 'Attempts ', counterEls.attempts),
       h('span', {}, 'Retries ', counterEls.retries),
       h('span', {}, 'Timeouts ', counterEls.timeouts),
-      h('span', {}, 'Parked / dropped ', counterEls.parked));
+      h('span', {}, 'Parked / dropped events ', counterEls.parked));
     const verdictBox = h('div', { class: 'ifl-verdict', role: 'status' });
+    const finalState = h('div', { class: 'ifl-final-state', hidden: true });
     output.replaceChildren(
       h('p', { class: 'ifl-kicker' }, 'Trace'),
-      stats, scroller, verdictBox,
+      stats, scroller, verdictBox, finalState,
       h('p', { class: 'ifl-note' }, note));
 
     const rows = result.trace;
@@ -269,7 +270,11 @@ export function mountLab(root, { headingLevel = 3 } = {}) {
         h('span', { class: 'ifl-msg' }, describe(row, result.timing?.timeoutMs))));
       scroller.scrollTop = scroller.scrollHeight;
     };
-    const finish = () => { state.playing = null; renderVerdict(verdictBox, result, lesson); };
+    const finish = () => {
+      state.playing = null;
+      renderVerdict(verdictBox, result, lesson);
+      renderFinalState(finalState, result);
+    };
 
     if (reducedMotion()) { rows.forEach(addRow); finish(); return; }
     let i = 0;
@@ -279,6 +284,25 @@ export function mountLab(root, { headingLevel = 3 } = {}) {
       else { clearInterval(state.playing); finish(); }
     }, step);
     output.scrollIntoView?.({ block: 'nearest' });
+  }
+
+  function renderFinalState(box, result) {
+    const field = (label, value) => h('div', {}, h('dt', {}, label), h('dd', {}, value));
+    const group = (name, entries, buffered = false) => h('section', { class: 'ifl-final-group', 'aria-label': name },
+      h(`h${Math.min(6, level + 1)}`, {}, name, ' (', entries.length, ')'),
+      entries.length ? h('ul', {}, entries.map(entry => h('li', {}, h('dl', {},
+        field('Event ID', entry.eventId), field('Event type', entry.eventType),
+        buffered ? field('Sequence', entry.seq) : [field('Reason', entry.reason), field('Delivery attempts', entry.attempts)],
+      )))) : h('p', { class: 'ifl-empty' }, 'Empty'),
+    );
+    box.replaceChildren(
+      h('p', { class: 'ifl-kicker' }, 'Final state'),
+      h('p', { class: 'ifl-note' }, 'Snapshots after the run. Trace counters above count historical events.'),
+      group('Dead-letter queue', result.dlq),
+      group('Dropped messages', result.dropped),
+      group('Ordering buffer', result.buffered, true),
+    );
+    box.hidden = false;
   }
 
   function renderVerdict(box, result, lesson) {
@@ -314,6 +338,8 @@ export function mountLab(root, { headingLevel = 3 } = {}) {
   }
 
   function render() {
+    output.replaceChildren();
+    output.hidden = true;
     if (state.playing) { clearInterval(state.playing); state.playing = null; }
     if (state.mode === 'guided') renderGuided();
     else if (state.mode === 'free') renderFree();
