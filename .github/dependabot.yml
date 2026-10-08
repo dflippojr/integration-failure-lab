@@ -1,15 +1,21 @@
 version: 2
 updates:
   - package-ecosystem: maven
+    assignees:
+      - dflippojr
     directory: /java
     schedule:
       interval: weekly
   # The root package.json currently has no npm dependencies.
   - package-ecosystem: npm
+    assignees:
+      - dflippojr
     directory: /
     schedule:
       interval: weekly
   - package-ecosystem: github-actions
+    assignees:
+      - dflippojr
     directory: /
     schedule:
       interval: weekly
