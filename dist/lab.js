@@ -2,8 +2,16 @@
 // headingLevel (2-6, default 3) sets the scenario title's heading so it nests under the host page's outline.
 // Uses the pure engine; everything runs client-side on a virtual clock.
 import { run, judge, DEFAULT_SAFEGUARDS, EXPECTED_RECORD, TIMING } from './engine.js';
-import { SCENARIOS } from './scenarios.js';
-import { EXECUTED } from './executed.js';
+import { SCENARIOS, RECORDING_IDS } from './scenarios.js';
+
+let recordings;
+function loadRecordings() {
+  recordings ??= import('./executed.js').then(module => module.EXECUTED).catch(error => {
+    recordings = null; // Failed loads can be retried; successful loads persist across mounts.
+    throw error;
+  });
+  return recordings;
+}
 
 const MODE_KEY = 'ifl-mode';
 const SOURCE_KEY = 'ifl-source';
@@ -20,8 +28,8 @@ function savePref(key, value) {
 
 const SIM_NOTE = `Simulated in your browser with synthetic data on a virtual clock (${TIMING.timeoutMs / 1000} s ack timeout, ${TIMING.latencyMs} ms delivery). Not a real payer or claims system.`;
 
-function executedResult(id) {
-  const x = EXECUTED[id];
+function executedResult(id, executed) {
+  const x = executed[id];
   if (!x) return null;
   const verdict = judge(x.record, { dlq: x.dlq, dropped: x.dropped, buffered: x.buffered });
   const note = `Recorded from a real run: Spring Boot ${x.runtime.springBoot} on Java ${x.runtime.java.split('+')[0]}, ${x.runtime.transport}. `
@@ -96,12 +104,13 @@ export function mountLab(root, { headingLevel = 3 } = {}) {
   const level = Math.min(6, Math.max(2, Math.trunc(Number(headingLevel)) || 3));
   root.classList.add('ifl');
   root.replaceChildren();
-  const state = { mode: readPref(MODE_KEY), source: readPref(SOURCE_KEY) === 'exec' ? 'exec' : 'sim', index: 0, playing: null };
+  const state = { mode: readPref(MODE_KEY), source: readPref(SOURCE_KEY) === 'exec' ? 'exec' : 'sim', index: 0, playing: null, pending: null };
 
   const header = h('div', { class: 'ifl-bar' });
   const body = h('div', { class: 'ifl-body' });
   const output = h('div', { class: 'ifl-output', hidden: true });
-  root.append(header, body, output);
+  const status = h('div', { role: 'status', 'aria-label': 'Replay status', hidden: true });
+  root.append(header, body, status, output);
 
   function setMode(mode) {
     state.mode = mode;
@@ -161,20 +170,48 @@ export function mountLab(root, { headingLevel = 3 } = {}) {
       sourceToggle(s.id),
       h('div', { class: 'ifl-actions' },
         h('button', { type: 'button', class: 'button ifl-run', onclick: () => runGuided(s) },
-          state.source === 'exec' && EXECUTED[s.id] ? 'Replay real run ' : 'Run scenario ', h('span', { 'aria-hidden': 'true' }, '→')),
+          state.source === 'exec' && RECORDING_IDS.includes(s.id) ? 'Replay real run ' : 'Run scenario ', h('span', { 'aria-hidden': 'true' }, '→')),
         h('span', { class: 'ifl-nav' }, prev, next)),
     );
     output.hidden = true;
   }
 
-  function runGuided(s) {
-    const exec = state.source === 'exec' ? executedResult(s.id) : null;
-    if (exec) play(exec, s.lesson, exec.note);
-    else play(run(s), s.lesson, SIM_NOTE);
+  async function runGuided(s) {
+    if (state.pending) return;
+    if (state.source !== 'exec' || !RECORDING_IDS.includes(s.id)) {
+      play(run(s), s.lesson, SIM_NOTE);
+      return;
+    }
+    const request = {};
+    state.pending = request;
+    const button = body.querySelector('.ifl-run');
+    button.setAttribute('disabled', '');
+    if (state.playing) { clearInterval(state.playing); state.playing = null; }
+    output.replaceChildren();
+    output.hidden = true;
+    status.hidden = false;
+    status.replaceChildren('Loading recorded replay...');
+    try {
+      const executed = await loadRecordings();
+      if (state.pending !== request) return;
+      const result = executedResult(s.id, executed);
+      if (!result) throw new Error('Recording unavailable');
+      status.hidden = true;
+      play(result, s.lesson, result.note);
+    } catch {
+      if (state.pending !== request) return;
+      status.replaceChildren('Recorded replay unavailable. You can still simulate this scenario. ',
+        h('button', { type: 'button', onclick: () => runGuided(s) }, 'Retry replay'));
+    } finally {
+      if (state.pending === request) {
+        state.pending = null;
+        button.removeAttribute('disabled');
+      }
+    }
   }
 
   function sourceToggle(id) {
-    if (!EXECUTED[id]) return null;
+    if (!RECORDING_IDS.includes(id)) return null;
     const option = (value, label) => h('button', {
       type: 'button', class: 'ifl-seg', 'aria-pressed': String(state.source === value),
       onclick: () => { state.source = value; savePref(SOURCE_KEY, value); render(); refocus('.ifl-seg[aria-pressed="true"]'); },
@@ -338,6 +375,9 @@ export function mountLab(root, { headingLevel = 3 } = {}) {
   }
 
   function render() {
+    state.pending = null;
+    status.hidden = true;
+    status.replaceChildren();
     output.replaceChildren();
     output.hidden = true;
     if (state.playing) { clearInterval(state.playing); state.playing = null; }
