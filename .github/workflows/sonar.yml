@@ -63,6 +63,12 @@ jobs:
         if: steps.token.outputs.available == 'true'
         working-directory: java
         run: ./mvnw -B verify
+      - name: Copy Java dependency jars for SonarCloud
+        if: steps.token.outputs.available == 'true'
+        working-directory: java
+        run: |
+          ./mvnw -B -q dependency:copy-dependencies -DincludeScope=runtime -DoutputDirectory=target/dependency
+          ./mvnw -B -q dependency:copy-dependencies -DincludeScope=test -DoutputDirectory=target/test-dependency
       - name: Scan with SonarCloud
         if: steps.token.outputs.available == 'true'
         uses: SonarSource/sonarqube-scan-action@v8
