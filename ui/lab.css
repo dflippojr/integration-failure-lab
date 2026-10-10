@@ -96,7 +96,7 @@
 
 .ifl-final-state { margin-top: 18px; border-top: 1px solid var(--ifl-line); padding-top: 16px; }
 .ifl-final-state[hidden] { display: none; }
-.ifl-final-group { margin-top: 14px; }
+.ifl-final-group { margin: 14px 0 0; }
 .ifl-final-group :is(h3, h4, h5, h6) { font-size: 14px; margin: 0 0 6px; }
 .ifl-final-group ul { margin: 0; padding-left: 20px; }
 .ifl-final-group li { margin-bottom: 8px; }
@@ -142,6 +142,6 @@
     .ifl-panes .ifl-final-state:not([hidden]) { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 20px; }
     .ifl-panes .ifl-final-state > p { grid-column: 1 / -1; }
     .ifl-panes .ifl-final-state > .ifl-note { margin-top: 0; }
-    .ifl-panes .ifl-final-group { margin: 14px 0 0; min-width: 0; }
+    .ifl-panes .ifl-final-group { min-width: 0; }
   }
 }
