@@ -2,6 +2,7 @@
 import { test, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { register } from 'node:module';
 import { fileURLToPath } from 'node:url';
 
@@ -94,6 +95,54 @@ test('the scrolling trace is a named, focusable region', () => {
   const [list] = region.children;
   assert.equal(list.tagName, 'OL');
   assert.ok(list.children.length > 0);
+});
+
+test('guided and free-form wrap the bar, controls, status and output in one two-pane console, in reading order', () => {
+  for (const mode of ['guided', 'free']) {
+    const root = mount(undefined, mode);
+    assert.equal(root.children.length, 1);
+    const [frame] = root.children;
+    assert.equal(frame.className, 'ifl-console ifl-panes');
+    assert.deepEqual(frame.children.map(c => c.className), ['ifl-bar', 'ifl-body', 'ifl-status', 'ifl-output']);
+    const [bar, body, status, output] = frame.children;
+    assert.ok(bar.find(e => e.className === 'ifl-link').length, 'the mode switch sits in the title bar');
+    assert.ok(body.find(e => e.className.includes('ifl-run')).length, 'Run sits in the controls pane');
+    assert.equal(status.getAttribute('role'), 'status');
+    assert.equal(status.getAttribute('aria-label'), 'Replay status');
+    assert.equal(output.hidden, true, 'the output pane stays empty until the first run');
+    if (mode === 'guided') clickRun(root);
+    else {
+      const OriginalFormData = globalThis.FormData;
+      const values = { retryLimit: '3', backoff: 'exponential', deadLetter: 'on' };
+      globalThis.FormData = class { get(name) { return values[name] ?? null; } };
+      try { byClass(body, 'ifl-form').listeners.submit({ preventDefault() {} }); }
+      finally { globalThis.FormData = OriginalFormData; }
+    }
+    assert.equal(output.hidden, false);
+    assert.deepEqual(output.children.map(c => c.className || c.tagName), ['ifl-kicker', 'ifl-stats', 'ifl-trace-scroll', 'ifl-verdict ifl-ok', 'ifl-final-state', 'ifl-note']);
+    assert.equal(output.find(e => e.className.startsWith('ifl-verdict'))[0].getAttribute('role'), 'status');
+  }
+});
+
+test('the mode picker keeps the single-column console at any width', () => {
+  const root = new FakeElement('div');
+  const lab = mountLab(root);
+  assert.equal(root.children[0].className, 'ifl-console');
+  lab.setMode('guided');
+  assert.equal(root.children[0].className, 'ifl-console ifl-panes');
+});
+
+test('the two-pane rules key off the lab width, skip print, and touch only the panes', () => {
+  const css = readFileSync(fileURLToPath(new URL('../ui/lab.css', import.meta.url)), 'utf8').replace(/\r\n/g, '\n');
+  assert.match(css, /\.ifl \{[^}]*container: ifl \/ inline-size;/);
+  const start = css.indexOf('@media screen {\n  @container ifl (min-width: 810px) {');
+  assert.ok(start > 0, 'the panes sit in a screen-only container query on the lab, not a viewport query');
+  const block = css.slice(start).replace(/\/\*[\s\S]*?\*\//g, '');
+  const selectors = [...block.matchAll(/[{}]\s*([^{}@]+?)\s*\{/g)].map(m => m[1]);
+  assert.ok(selectors.length > 10);
+  for (const sel of selectors) for (const part of sel.split(/,(?![^(]*\))/)) assert.match(part.trim(), /^\.ifl-panes\b/, sel);
+  for (const area of ['bar', 'body', 'status', 'output']) assert.match(block, new RegExp(`\\.ifl-${area} \\{ grid-area: ${area};`));
+  assert.match(block, /grid-template-areas: "bar bar" "body status" "body output";/);
 });
 
 const byClass = (root, name) => root.find(e => e.className === name)[0];
