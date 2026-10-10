@@ -8,10 +8,13 @@
   --ifl-warn: var(--warn, #7a5a24);
   --ifl-bad: var(--bad, #9a3b2b);
   --ifl-panel: var(--panel, #f0f0e8);
+  --ifl-panel-2: var(--panel-2, #e6e5da);
+  --ifl-pad: 24px;
+  container: ifl / inline-size;
   border: 1px solid var(--ifl-line);
   border-radius: 8px;
   background: var(--ifl-panel);
-  padding: 24px;
+  padding: var(--ifl-pad);
   color: var(--ifl-ink);
 }
 .ifl button { font: inherit; }
@@ -84,7 +87,7 @@
 .ifl-note { font-size: 12px; color: var(--ifl-muted); margin: 14px 0 0; }
 
 @media (max-width: 640px) {
-  .ifl { padding: 16px; }
+  .ifl { --ifl-pad: 16px; }
   .ifl-picker { grid-template-columns: 1fr; }
   .ifl-trace li { grid-template-columns: 52px 1fr; }
   .ifl-actor { display: none; }
@@ -102,3 +105,43 @@
 .ifl-final-group dt { font-weight: 600; }
 .ifl-final-group dd { margin: 0; overflow-wrap: anywhere; min-width: 0; }
 .ifl-empty { font-size: 12px; color: var(--ifl-muted); margin: 0; }
+
+/* Desktop console (issue #36). When the lab itself is at least 860 px wide, guided and free-form modes become two panes
+   under a mono title bar: the controls on the left, the trace and its results on the right, top-aligned, so the trace sits
+   beside the Run button that produced it. Keyed to the lab's own width, so it works wherever it is embedded. Container
+   queries measure the content box: 810 px is an 860 px lab less its padding and border. Narrower labs, the picker and
+   print keep the single column above, unchanged. */
+@media screen {
+  @container ifl (min-width: 810px) {
+    .ifl-panes {
+      display: grid;
+      grid-template-columns: 376px minmax(0, 1fr);
+      grid-template-rows: auto auto 1fr;
+      grid-template-areas: "bar bar" "body status" "body output";
+      margin: calc(-1 * var(--ifl-pad));
+    }
+    .ifl-panes > .ifl-bar { grid-area: bar; align-items: center; padding: 10px 20px; background: var(--ifl-panel-2); border-bottom: 1px solid var(--ifl-line); border-radius: 7px 7px 0 0; }
+    .ifl-panes > .ifl-bar .ifl-kicker { margin: 0; }
+    .ifl-panes > .ifl-body { grid-area: body; min-width: 0; padding: 20px; border-right: 1px solid var(--ifl-line); }
+    .ifl-panes > .ifl-status { grid-area: status; padding: 20px 20px 0; font-size: 14px; }
+    .ifl-panes > .ifl-output { grid-area: output; min-width: 0; margin: 0; border-top: 0; padding: 20px; }
+
+    /* Controls pane: twelve chips as two even rows, each group label above its tags, and the two Engine options as one row. */
+    .ifl-panes .ifl-chips { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); }
+    .ifl-panes .ifl-chip { padding-inline: 0; }
+    .ifl-panes .ifl-tags, .ifl-panes .ifl-source { margin: 12px 0 0; }
+    .ifl-panes .ifl-tag-label { flex-basis: 100%; }
+    .ifl-panes .ifl-source { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .ifl-panes .ifl-source .ifl-tag-label { grid-column: 1 / -1; }
+    .ifl-panes .ifl-seg { padding: 4px 8px; font-size: 13px; line-height: 1.2; }
+
+    /* Output pane: the claim record sized to its contents, and the three final-state snapshots side by side. */
+    .ifl-panes .ifl-record { width: auto; }
+    .ifl-panes .ifl-record :is(th, td) { padding-right: 28px; }
+    .ifl-panes .ifl-record tbody th { width: auto; }
+    .ifl-panes .ifl-final-state:not([hidden]) { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 20px; }
+    .ifl-panes .ifl-final-state > p { grid-column: 1 / -1; }
+    .ifl-panes .ifl-final-state > .ifl-note { margin-top: 0; }
+    .ifl-panes .ifl-final-group { margin: 14px 0 0; min-width: 0; }
+  }
+}

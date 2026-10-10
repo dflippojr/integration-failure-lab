@@ -109,8 +109,10 @@ export function mountLab(root, { headingLevel = 3 } = {}) {
   const header = h('div', { class: 'ifl-bar' });
   const body = h('div', { class: 'ifl-body' });
   const output = h('div', { class: 'ifl-output', hidden: true });
-  const status = h('div', { role: 'status', 'aria-label': 'Replay status', hidden: true });
-  root.append(header, body, status, output);
+  const status = h('div', { class: 'ifl-status', role: 'status', 'aria-label': 'Replay status', hidden: true });
+  // One wrapper keeps the DOM order (bar, controls, status, output); lab.css makes it two panes when the lab is wide.
+  const frame = h('div', { class: 'ifl-console' }, header, body, status, output);
+  root.append(frame);
 
   function setMode(mode) {
     state.mode = mode;
@@ -381,6 +383,8 @@ export function mountLab(root, { headingLevel = 3 } = {}) {
     output.replaceChildren();
     output.hidden = true;
     if (state.playing) { clearInterval(state.playing); state.playing = null; }
+    // The picker stays one column at any width; guided and free-form share the two-pane layout.
+    frame.className = state.mode === 'guided' || state.mode === 'free' ? 'ifl-console ifl-panes' : 'ifl-console';
     if (state.mode === 'guided') renderGuided();
     else if (state.mode === 'free') renderFree();
     else renderPicker();
