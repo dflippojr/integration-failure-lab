@@ -106,6 +106,20 @@
 .ifl-final-group dd { margin: 0; overflow-wrap: anywhere; min-width: 0; }
 .ifl-empty { font-size: 12px; color: var(--ifl-muted); margin: 0; }
 
+/* Coarse pointers keep touch sizing when a phone rotates to a wide viewport.
+   Narrow embeddings also get readable controls; desktop consoles stay compact. */
+@media (max-width: 640px), (pointer: coarse) {
+  .ifl button, .ifl select, .ifl-check { box-sizing: border-box; min-width: 44px; min-height: 44px; }
+  .ifl button, .ifl select { max-width: 100%; }
+  .ifl-bar { align-items: center; margin-bottom: 8px; }
+  .ifl-status { margin-top: 8px; }
+  .ifl-chips, .ifl-source { gap: 8px; }
+  .ifl select { font-size: 16px; }
+  .ifl-check input { flex-shrink: 0; }
+  .ifl-check span { min-width: 0; }
+  .ifl-inline { flex-wrap: wrap; }
+}
+
 /* Desktop console (issue #36). When the lab itself is at least 860 px wide, guided and free-form modes become two panes
    under a mono title bar: the controls on the left, the trace and its results on the right, top-aligned, so the trace sits
    beside the Run button that produced it. Keyed to the lab's own width, so it works wherever it is embedded. Container

@@ -134,7 +134,7 @@ export function mountLab(root, { headingLevel = 3 } = {}) {
     const card = (mode, title, text) => h('button', { type: 'button', class: 'ifl-pick', onclick: () => setMode(mode) },
       h('strong', {}, title), h('span', {}, text));
     body.replaceChildren(h('div', { class: 'ifl-picker' },
-      card('guided', 'Guided', 'Walk through ten failures one at a time. Each shows what broke and which safeguard fixes it.'),
+      card('guided', 'Guided', `Walk through ${SCENARIOS.length} failures one at a time. Each shows what broke and which safeguard fixes it.`),
       card('free', 'Free-form', 'Pick the failures and the safeguards yourself, then see what happens to the claim.'),
     ));
     output.hidden = true;
