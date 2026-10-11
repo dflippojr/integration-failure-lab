@@ -13,7 +13,7 @@ Let a visitor see why integration reliability is hard and what the standard fixe
        └──────────── trace log (every hop, timestamped) ──┘
 ```
 
-- **Producer:** emits a short, fixed sequence of synthetic claim events for one claim: `ClaimSubmitted`, `ClaimAccepted`, `ClaimPaid`. Each carries `eventId`, `claimId`, `seq`, `occurredAt`.
+- **Producer:** emits a short, fixed sequence of synthetic claim events for one claim: `ClaimSubmitted`, `ClaimAccepted`, `ClaimPaid`. Each carries `eventId`, `type`, `claimId`, `seq`, `status`, and `payload`.
 - **Queue / delivery:** at-least-once. On timeout or 5xx it retries with backoff, up to a configurable limit. Messages it gives up on go to a dead-letter queue (DLQ).
 - **Downstream:** applies events to a claim record (status, paid amount). This is where duplicates and misordering do damage: double payment, or a claim that ends up "Accepted" after "Paid".
 - **Trace log:** one row per hop (send, attempt n, ack, timeout, retry scheduled, DLQ, apply, reject) with a virtual timestamp.
@@ -43,12 +43,12 @@ Let a visitor see why integration reliability is hard and what the standard fixe
 ## Simulated vs. executed
 
 - **The simulation is deterministic and runs in the browser.** It uses a virtual clock with fixed latencies and no randomness, so each scenario replays identically. It's plain JavaScript with no dependencies, so it embeds directly in the static site. The page says clearly that it's simulated.
-- **The executed runner** in `java/` is a Spring Boot 4.1.1 / Java 21 app. A producer emits the three events on a schedule; a delivery queue posts each to `POST /claims/{id}/events` with the JDK `HttpClient` (read timeout), retries with backoff, treats 422 as non-retryable, and dead-letters or drops what it gives up on. One scheduled worker carries each ready delivery through HTTP completion before starting another, so a slow first POST cannot be overtaken while it is in flight. Producer emissions can run late while that worker is busy; injected reorder delays and retry backoff still reschedule events and let other ready deliveries proceed. The claim-status controller injects faults server-side (holding a request past the timeout without processing it, or processing it and holding the ack) and applies the same consumer safeguards as the engine. Wall-clock timings are shorter than the simulation's (300 ms timeout, 150 ms backoff base) and every trace records them. `ScenarioRunnerTest` runs all twelve scenarios over real HTTP and asserts the same expectations as the JS tests; recorded traces live in `executed/` and ship to the site via `build.mjs`.
+- **The executed runner** in `java/` is a Spring Boot 4.1.1 / Java 21 app. Before each scenario, it posts a healthy `ClaimSubmitted` event to `POST /claims/{id}/events` with a separate 10 s read timeout and a no-fault context. This exercises the actual JSON body binding and integer `X-Attempt` conversion; a health GET would leave them cold. Only after that POST completes does it reset the store, install the scenario context, and start the trace clock. The result's `warmupMs` records setup cost without including setup rows in the scenario trace. A four-thread scheduled executor runs the three independent blocking HTTP attempts and producer/retry timers, so an injected timeout or lost ack does not hold up unrelated events. Executed `send` rows mark the start of the HTTP attempt, after any injected reorder delay; the engine's virtual `send` rows precede its scheduled arrival delay. The JDK `HttpClient` uses a 300 ms read timeout; retries use a 150 ms backoff base, 422 is non-retryable, and exhausted messages are dead-lettered or dropped. The controller holds injected timeout requests without applying them, or applies events before holding a lost ack, and uses the same consumer safeguards as the engine. Warming removes one-time POST initialization from scenario timing; healthy order relies on the 0/40/80 ms emission spacing and localhost processing, rather than an unconditional transport ordering guarantee. The client and executor are closed after each run. `ScenarioRunnerTest` runs all twelve scenarios over real HTTP against the shared expectations; recorded traces in `executed/` ship to the site through `build.mjs`.
 
 ## Engine boundaries (so the simulator and the Java runner share scenarios)
 
 - `scenarios/*.json`: failure injections, safeguard settings, and the expected final record.
-- `engine`: pure function `run(scenario, settings) -> { trace[], queue[], finalRecord, verdict }`. No DOM access.
+- `engine`: pure function `run(scenario, overrides) -> { trace, record, expected, dlq, dropped, buffered, stats, guards, verdict }`. No DOM access.
 - `ui`: renders a trace. It can't tell whether the trace came from the simulator or from a recorded Java run.
 
 ## Visitor modes
@@ -61,9 +61,11 @@ A picker on first visit offers **Guided** (one scenario at a time, with expected
 - `test/ui.test.js`: accessibility structure of the UI (heading levels, labels, focusable trace region), final queue snapshots, and deferred loading of recordings.
 - `test/dist.test.js`: `dist/` matches `npm run build` output, every scenario has exactly one recording, and the initial static import graph excludes recordings and stays under the byte baseline.
 - `test/build.test.js`: `scripts/build.mjs` accepts only its fixed target names.
-- `java/src/test/java/dev/dflippojr/lab/ScenarioRunnerTest.java`: runs all twelve scenarios over real HTTP against the same expectations.
+- `java/src/test/java/dev/dflippojr/lab/ScenarioRunnerTest.java`: runs all twelve scenarios over real HTTP against the same expectations and checks that independent deliveries proceed during a timeout.
+- `java/src/test/java/dev/dflippojr/lab/ScenarioRunnerOrderingTest.java`: holds the first warm-up POST beyond the scenario read timeout using latches, checks that later events wait for setup, and reports the warm-up duration.
+- `java/src/test/java/dev/dflippojr/lab/ScenarioRunnerStressTest.java`: starts a fresh JVM and Spring server for every sample (one by default, opt into 30 with `-Dlab.stress.runs=30`), preserves the original outcome assertions, and closes each server and child process.
 
-Commands: `npm test` and `cd java && ./mvnw verify`.
+Commands: `npm test` and `cd java && ./mvnw -DforkCount=1 verify`. For 30 cold samples: `./mvnw -DforkCount=1 -Dtest=ScenarioRunnerStressTest -Dlab.stress.runs=30 test`.
 
 ## Not built
 
