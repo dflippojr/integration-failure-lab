@@ -51,6 +51,17 @@ class ScenarioRunnerTest {
     }
 
     @Test
+    void reorderedSendRowsMarkTheHttpAttemptInsteadOfEnqueueing() throws Exception {
+        Scenario scenario = files.load().stream().filter(s -> s.id().equals("3a-out-of-order")).findFirst().orElseThrow();
+        Map<String, Object> result = runner.run(scenario);
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> trace = (List<Map<String, Object>>) result.get("trace");
+        assertThat(rowIndex(trace, "E2", "emit", null)).isLessThan(rowIndex(trace, "E3", "emit", null));
+        assertThat(rowIndex(trace, "E3", "send", 1)).isLessThan(rowIndex(trace, "E2", "send", 1));
+        assertThat(rowIndex(trace, "E2", "send", 1)).isLessThan(rowIndex(trace, "E2", "apply", null));
+    }
+
+    @Test
     void combinedFailuresDoNotBlockIndependentDeliveries() throws Exception {
         Scenario scenario = files.load().stream().filter(s -> s.id().equals("4-combined")).findFirst().orElseThrow();
         Map<String, Object> result = runner.run(scenario);
