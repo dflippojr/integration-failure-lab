@@ -1,26 +1,27 @@
 {
   "scenarioId" : "6b-poison-message-replay",
   "mode" : "executed",
-  "generatedAt" : "2026-10-06T10:27:29.379894600Z",
+  "generatedAt" : "2026-10-11T16:56:23.180884400Z",
+  "warmupMs" : 4,
   "runtime" : {
     "transport" : "HTTP/1.1 on localhost (JDK HttpClient -> embedded Tomcat)",
-    "springBoot" : "4.1.1",
-    "java" : "21.0.12.1+1-LTS"
+    "java" : "21.0.12.1+1-LTS",
+    "springBoot" : "4.1.1"
   },
   "timing" : {
-    "sendAtMs" : [ 0, 40, 80 ],
-    "backoffBaseMs" : 150,
+    "reorderDelayMs" : 200,
     "timeoutMs" : 300,
-    "reorderDelayMs" : 200
+    "backoffBaseMs" : 150,
+    "sendAtMs" : [ 0, 40, 80 ]
   },
   "guards" : {
-    "ordering" : false,
-    "backoff" : "exponential",
     "idempotency" : false,
-    "retryLimit" : 3,
-    "deadLetter" : true,
+    "backoff" : "exponential",
+    "ordering" : false,
+    "replayAfterFix" : true,
     "schemaValidation" : false,
-    "replayAfterFix" : true
+    "deadLetter" : true,
+    "retryLimit" : 3
   },
   "trace" : [ {
     "t" : 0,
@@ -52,21 +53,21 @@
     "eventType" : "ClaimSubmitted",
     "attempt" : 1
   }, {
-    "t" : 53,
+    "t" : 48,
     "actor" : "producer",
     "kind" : "emit",
     "eventId" : "E2",
     "eventType" : "ClaimAccepted",
     "seq" : 2
   }, {
-    "t" : 53,
+    "t" : 48,
     "actor" : "queue",
     "kind" : "send",
     "eventId" : "E2",
     "eventType" : "ClaimAccepted",
     "attempt" : 1
   }, {
-    "t" : 55,
+    "t" : 51,
     "actor" : "downstream",
     "kind" : "apply",
     "eventId" : "E2",
@@ -74,35 +75,35 @@
     "status" : "Accepted",
     "paidCents" : 0
   }, {
-    "t" : 55,
+    "t" : 51,
     "actor" : "downstream",
     "kind" : "ack",
     "eventId" : "E2",
     "eventType" : "ClaimAccepted",
     "attempt" : 1
   }, {
-    "t" : 84,
+    "t" : 94,
     "actor" : "producer",
     "kind" : "emit",
     "eventId" : "E3",
     "eventType" : "ClaimPaid",
     "seq" : 3
   }, {
-    "t" : 84,
+    "t" : 94,
     "actor" : "queue",
     "kind" : "send",
     "eventId" : "E3",
     "eventType" : "ClaimPaid",
     "attempt" : 1
   }, {
-    "t" : 86,
+    "t" : 96,
     "actor" : "downstream",
     "kind" : "reject",
     "eventId" : "E3",
     "eventType" : "ClaimPaid",
     "note" : "poison: paidAmount is text, cannot be parsed"
   }, {
-    "t" : 87,
+    "t" : 97,
     "actor" : "queue",
     "kind" : "retry-scheduled",
     "eventId" : "E3",
@@ -110,21 +111,21 @@
     "attempt" : 1,
     "note" : "retry in 150 ms"
   }, {
-    "t" : 239,
+    "t" : 262,
     "actor" : "queue",
     "kind" : "send",
     "eventId" : "E3",
     "eventType" : "ClaimPaid",
     "attempt" : 2
   }, {
-    "t" : 242,
+    "t" : 266,
     "actor" : "downstream",
     "kind" : "reject",
     "eventId" : "E3",
     "eventType" : "ClaimPaid",
     "note" : "poison: paidAmount is text, cannot be parsed"
   }, {
-    "t" : 243,
+    "t" : 267,
     "actor" : "queue",
     "kind" : "retry-scheduled",
     "eventId" : "E3",
@@ -132,21 +133,21 @@
     "attempt" : 2,
     "note" : "retry in 300 ms"
   }, {
-    "t" : 550,
+    "t" : 568,
     "actor" : "queue",
     "kind" : "send",
     "eventId" : "E3",
     "eventType" : "ClaimPaid",
     "attempt" : 3
   }, {
-    "t" : 552,
+    "t" : 572,
     "actor" : "downstream",
     "kind" : "reject",
     "eventId" : "E3",
     "eventType" : "ClaimPaid",
     "note" : "poison: paidAmount is text, cannot be parsed"
   }, {
-    "t" : 554,
+    "t" : 573,
     "actor" : "queue",
     "kind" : "retry-scheduled",
     "eventId" : "E3",
@@ -154,21 +155,21 @@
     "attempt" : 3,
     "note" : "retry in 600 ms"
   }, {
-    "t" : 1154,
+    "t" : 1182,
     "actor" : "queue",
     "kind" : "send",
     "eventId" : "E3",
     "eventType" : "ClaimPaid",
     "attempt" : 4
   }, {
-    "t" : 1157,
+    "t" : 1186,
     "actor" : "downstream",
     "kind" : "reject",
     "eventId" : "E3",
     "eventType" : "ClaimPaid",
     "note" : "poison: paidAmount is text, cannot be parsed"
   }, {
-    "t" : 1157,
+    "t" : 1187,
     "actor" : "queue",
     "kind" : "dead-letter",
     "eventId" : "E3",
@@ -176,21 +177,21 @@
     "attempt" : 4,
     "note" : "retry limit (3) reached"
   }, {
-    "t" : 1558,
+    "t" : 1596,
     "actor" : "queue",
     "kind" : "replay",
     "eventId" : "E3",
     "eventType" : "ClaimPaid",
     "note" : "producer fix shipped, replaying from the dead-letter queue"
   }, {
-    "t" : 1558,
+    "t" : 1596,
     "actor" : "queue",
     "kind" : "send",
     "eventId" : "E3",
     "eventType" : "ClaimPaid",
     "attempt" : 1
   }, {
-    "t" : 1561,
+    "t" : 1601,
     "actor" : "downstream",
     "kind" : "apply",
     "eventId" : "E3",
@@ -198,7 +199,7 @@
     "status" : "Paid",
     "paidCents" : 12000
   }, {
-    "t" : 1561,
+    "t" : 1601,
     "actor" : "downstream",
     "kind" : "ack",
     "eventId" : "E3",

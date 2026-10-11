@@ -46,10 +46,20 @@ public class ScenarioRunner {
     }
 
     public synchronized Map<String, Object> run(Scenario scenario) throws InterruptedException {
-        HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(1)).version(HttpClient.Version.HTTP_1_1).build();
-        // Warm the shared connection so run timings are fair. The first request to a cold server can
-        // outlast the scenario's read timeout, so the warm-up gets a generous one of its own.
-        client(http, Duration.ofSeconds(10)).get().uri("/health").retrieve().toBodilessEntity();
+        try (HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(1))
+                .version(HttpClient.Version.HTTP_1_1).build()) {
+            return run(scenario, http);
+        }
+    }
+
+    private Map<String, Object> run(Scenario scenario, HttpClient http) throws InterruptedException {
+        // Exercise the event endpoint's JSON binding and header conversion before the scenario
+        // clock starts. A health GET does not initialize this path. No injected faults apply here.
+        context.begin(Scenario.fromMap(Map.of("id", "warm-up")), new Trace());
+        store.reset();
+        long warmupStart = System.nanoTime();
+        postEvent(client(http, Duration.ofSeconds(10)), ClaimEvent.sequence().getFirst(), 1);
+        long warmupMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - warmupStart);
         RestClient client = client(http, Duration.ofMillis(props.timeoutMs()));
 
         Trace trace = new Trace();
@@ -66,14 +76,19 @@ public class ScenarioRunner {
                 delivery.send(event, 1);
             }, props.sendAtMs().get(i), TimeUnit.MILLISECONDS);
         }
-        boolean finished = delivery.done.await(30, TimeUnit.SECONDS);
-        delivery.scheduler.shutdownNow();
+        boolean finished;
+        try {
+            finished = delivery.done.await(30, TimeUnit.SECONDS);
+        } finally {
+            delivery.scheduler.shutdownNow();
+        }
         if (!finished) throw new IllegalStateException("Scenario " + scenario.id() + " did not finish in 30 s");
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("scenarioId", scenario.id());
         result.put("mode", "executed");
         result.put("generatedAt", Instant.now().toString());
+        result.put("warmupMs", warmupMs);
         result.put("runtime", Map.of("java", Runtime.version().toString(), "springBoot", SpringBootVersion.getVersion(),
                 "transport", "HTTP/1.1 on localhost (JDK HttpClient -> embedded Tomcat)"));
         result.put("timing", Map.of("timeoutMs", props.timeoutMs(), "backoffBaseMs", props.backoffBaseMs(),
@@ -111,8 +126,21 @@ public class ScenarioRunner {
                 .build();
     }
 
+    private static void postEvent(RestClient client, ClaimEvent event, int attempt) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("eventId", event.eventId());
+        body.put("type", event.type());
+        body.put("seq", event.seq());
+        body.put("status", event.status());
+        body.put("payload", event.payload());
+        client.post().uri("/claims/{id}/events", event.claimId())
+                .header("X-Attempt", String.valueOf(attempt))
+                .body(body).retrieve().toBodilessEntity();
+    }
+
     private final class Delivery {
-        final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(8);
+        // Three independent HTTP attempts plus capacity for emissions and retry timers.
+        final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(4);
         final CountDownLatch done = new CountDownLatch(3);
         final List<Map<String, Object>> dlq = Collections.synchronizedList(new ArrayList<>());
         final List<Map<String, Object>> dropped = Collections.synchronizedList(new ArrayList<>());
@@ -129,24 +157,14 @@ public class ScenarioRunner {
         }
 
         void send(ClaimEvent event, int attempt) {
-            trace.log("queue", "send", event, "attempt", attempt);
             long delay = scenario.failures().delayed(event.type(), attempt) ? props.reorderDelayMs() : 0;
             scheduler.schedule(() -> post(event, attempt), delay, TimeUnit.MILLISECONDS);
         }
 
         private void post(ClaimEvent event, int attempt) {
-            Map<String, Object> body = new LinkedHashMap<>();
-            body.put("eventId", event.eventId());
-            body.put("type", event.type());
-            body.put("seq", event.seq());
-            body.put("status", event.status());
-            body.put("payload", event.payload());
+            trace.log("queue", "send", event, "attempt", attempt);
             try {
-                client.post().uri("/claims/{id}/events", event.claimId())
-                        .header("X-Attempt", String.valueOf(attempt))
-                        .body(body)
-                        .retrieve()
-                        .toBodilessEntity();
+                postEvent(client, event, attempt);
                 done.countDown();
             } catch (HttpClientErrorException rejected) {
                 giveUp(event, attempt, "rejected as non-retryable");

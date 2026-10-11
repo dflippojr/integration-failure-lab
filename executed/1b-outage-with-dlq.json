@@ -1,26 +1,27 @@
 {
   "scenarioId" : "1b-outage-with-dlq",
   "mode" : "executed",
-  "generatedAt" : "2026-10-06T10:27:23.838270300Z",
+  "generatedAt" : "2026-10-11T16:56:17.540943200Z",
+  "warmupMs" : 3,
   "runtime" : {
     "transport" : "HTTP/1.1 on localhost (JDK HttpClient -> embedded Tomcat)",
-    "springBoot" : "4.1.1",
-    "java" : "21.0.12.1+1-LTS"
+    "java" : "21.0.12.1+1-LTS",
+    "springBoot" : "4.1.1"
   },
   "timing" : {
-    "sendAtMs" : [ 0, 40, 80 ],
-    "backoffBaseMs" : 150,
+    "reorderDelayMs" : 200,
     "timeoutMs" : 300,
-    "reorderDelayMs" : 200
+    "backoffBaseMs" : 150,
+    "sendAtMs" : [ 0, 40, 80 ]
   },
   "guards" : {
-    "ordering" : false,
-    "backoff" : "exponential",
     "idempotency" : false,
-    "retryLimit" : 3,
-    "deadLetter" : true,
+    "backoff" : "exponential",
+    "ordering" : false,
+    "replayAfterFix" : false,
     "schemaValidation" : false,
-    "replayAfterFix" : false
+    "deadLetter" : true,
+    "retryLimit" : 3
   },
   "trace" : [ {
     "t" : 0,
@@ -52,21 +53,21 @@
     "eventType" : "ClaimSubmitted",
     "attempt" : 1
   }, {
-    "t" : 49,
+    "t" : 46,
     "actor" : "producer",
     "kind" : "emit",
     "eventId" : "E2",
     "eventType" : "ClaimAccepted",
     "seq" : 2
   }, {
-    "t" : 49,
+    "t" : 46,
     "actor" : "queue",
     "kind" : "send",
     "eventId" : "E2",
     "eventType" : "ClaimAccepted",
     "attempt" : 1
   }, {
-    "t" : 51,
+    "t" : 49,
     "actor" : "downstream",
     "kind" : "apply",
     "eventId" : "E2",
@@ -74,35 +75,35 @@
     "status" : "Accepted",
     "paidCents" : 0
   }, {
-    "t" : 51,
+    "t" : 49,
     "actor" : "downstream",
     "kind" : "ack",
     "eventId" : "E2",
     "eventType" : "ClaimAccepted",
     "attempt" : 1
   }, {
-    "t" : 80,
+    "t" : 91,
     "actor" : "producer",
     "kind" : "emit",
     "eventId" : "E3",
     "eventType" : "ClaimPaid",
     "seq" : 3
   }, {
-    "t" : 80,
+    "t" : 91,
     "actor" : "queue",
     "kind" : "send",
     "eventId" : "E3",
     "eventType" : "ClaimPaid",
     "attempt" : 1
   }, {
-    "t" : 394,
+    "t" : 406,
     "actor" : "queue",
     "kind" : "timeout",
     "eventId" : "E3",
     "eventType" : "ClaimPaid",
     "attempt" : 1
   }, {
-    "t" : 394,
+    "t" : 406,
     "actor" : "queue",
     "kind" : "retry-scheduled",
     "eventId" : "E3",
@@ -110,21 +111,21 @@
     "attempt" : 1,
     "note" : "retry in 150 ms"
   }, {
-    "t" : 548,
+    "t" : 561,
     "actor" : "queue",
     "kind" : "send",
     "eventId" : "E3",
     "eventType" : "ClaimPaid",
     "attempt" : 2
   }, {
-    "t" : 860,
+    "t" : 872,
     "actor" : "queue",
     "kind" : "timeout",
     "eventId" : "E3",
     "eventType" : "ClaimPaid",
     "attempt" : 2
   }, {
-    "t" : 860,
+    "t" : 872,
     "actor" : "queue",
     "kind" : "retry-scheduled",
     "eventId" : "E3",
@@ -132,21 +133,21 @@
     "attempt" : 2,
     "note" : "retry in 300 ms"
   }, {
-    "t" : 1170,
+    "t" : 1184,
     "actor" : "queue",
     "kind" : "send",
     "eventId" : "E3",
     "eventType" : "ClaimPaid",
     "attempt" : 3
   }, {
-    "t" : 1485,
+    "t" : 1498,
     "actor" : "queue",
     "kind" : "timeout",
     "eventId" : "E3",
     "eventType" : "ClaimPaid",
     "attempt" : 3
   }, {
-    "t" : 1485,
+    "t" : 1498,
     "actor" : "queue",
     "kind" : "retry-scheduled",
     "eventId" : "E3",
@@ -154,21 +155,21 @@
     "attempt" : 3,
     "note" : "retry in 600 ms"
   }, {
-    "t" : 2094,
+    "t" : 2106,
     "actor" : "queue",
     "kind" : "send",
     "eventId" : "E3",
     "eventType" : "ClaimPaid",
     "attempt" : 4
   }, {
-    "t" : 2410,
+    "t" : 2415,
     "actor" : "queue",
     "kind" : "timeout",
     "eventId" : "E3",
     "eventType" : "ClaimPaid",
     "attempt" : 4
   }, {
-    "t" : 2410,
+    "t" : 2415,
     "actor" : "queue",
     "kind" : "dead-letter",
     "eventId" : "E3",
@@ -182,10 +183,10 @@
     "applied" : [ "E1", "E2" ]
   },
   "dlq" : [ {
-    "attempts" : 4,
-    "reason" : "retry limit (3) reached",
+    "eventType" : "ClaimPaid",
     "eventId" : "E3",
-    "eventType" : "ClaimPaid"
+    "reason" : "retry limit (3) reached",
+    "attempts" : 4
   } ],
   "dropped" : [ ],
   "buffered" : [ ]
