@@ -112,7 +112,9 @@ public class ScenarioRunner {
     }
 
     private final class Delivery {
-        final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(8);
+        // One worker preserves due-time order through HTTP completion, including a cold first POST.
+        // Injected reorder delays and retry backoff still reschedule events without blocking the queue.
+        final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
         final CountDownLatch done = new CountDownLatch(3);
         final List<Map<String, Object>> dlq = Collections.synchronizedList(new ArrayList<>());
         final List<Map<String, Object>> dropped = Collections.synchronizedList(new ArrayList<>());
