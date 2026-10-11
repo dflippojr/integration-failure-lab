@@ -51,6 +51,29 @@ class ScenarioRunnerTest {
     }
 
     @Test
+    void combinedFailuresDoNotBlockIndependentDeliveries() throws Exception {
+        Scenario scenario = files.load().stream().filter(s -> s.id().equals("4-combined")).findFirst().orElseThrow();
+        Map<String, Object> result = runner.run(scenario);
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> trace = (List<Map<String, Object>>) result.get("trace");
+        int buffered = rowIndex(trace, "E3", "buffer", null);
+        int timeout = rowIndex(trace, "E2", "timeout", 1);
+        assertThat(buffered).as("E3 arrives independently while E2 waits for timeout: %s", trace)
+                .isLessThan(timeout);
+        assertThat(rowIndex(trace, "E3", "send", 1)).isLessThan(buffered);
+        assertThat(rowIndex(trace, "E2", "send", 2)).isGreaterThan(timeout);
+    }
+
+    private static int rowIndex(List<Map<String, Object>> trace, String eventId, String kind, Integer attempt) {
+        for (int i = 0; i < trace.size(); i++) {
+            Map<String, Object> row = trace.get(i);
+            if (eventId.equals(row.get("eventId")) && kind.equals(row.get("kind"))
+                    && (attempt == null || attempt.equals(row.get("attempt")))) return i;
+        }
+        throw new AssertionError("Missing " + eventId + " " + kind + " attempt " + attempt + ": " + trace);
+    }
+
+    @Test
     void safeguardsLeaveTheirMarksInTheTrace() throws Exception {
         Map<String, Scenario> byId = files.load().stream().collect(java.util.stream.Collectors.toMap(Scenario::id, s -> s));
         assertThat(kinds(runner.run(byId.get("2a-duplicate")))).contains("ack-lost");

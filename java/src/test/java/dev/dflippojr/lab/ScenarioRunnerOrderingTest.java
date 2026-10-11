@@ -18,9 +18,8 @@ import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Primary;
 import org.springframework.test.annotation.DirtiesContext;
 
-/** Reproduces a slow first event on the real HTTP path without relying on cold-start timing. */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-        properties = "lab.timeout-ms=2000")
+/** Holds the first warm-up POST beyond the scenario timeout, without relying on cold-start timing. */
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Import(ScenarioRunnerOrderingTest.GateConfiguration.class)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class ScenarioRunnerOrderingTest {
@@ -30,6 +29,9 @@ class ScenarioRunnerOrderingTest {
 
     @Autowired
     GatedClaimStore store;
+
+    @Autowired
+    LabProperties props;
 
     @Test
     void laterInitialEventsCannotOvertakeASlowFirstRequest() throws Exception {
@@ -41,14 +43,18 @@ class ScenarioRunnerOrderingTest {
             boolean overtaken;
             try {
                 assertThat(store.firstEntered.await(5, TimeUnit.SECONDS)).as("E1 reached the downstream").isTrue();
-                // E2 and E3 become due at 40/80 ms while E1 is held before application.
-                overtaken = store.laterEntered.await(250, TimeUnit.MILLISECONDS);
+                // Hold setup past the scenario timeout; emissions must wait for its completion.
+                overtaken = store.laterEntered.await(props.timeoutMs() * 2, TimeUnit.MILLISECONDS);
             } finally {
                 store.releaseFirst.countDown();
             }
             Map<String, Object> result = run.get(10, TimeUnit.SECONDS);
             assertThat(overtaken).as("later request arrived before E1 was released; trace: %s", result.get("trace")).isFalse();
             assertThat(((Map<?, ?>) result.get("record")).get("applied")).isEqualTo(List.of("E1", "E2", "E3"));
+            assertThat(((Number) result.get("warmupMs")).longValue()).isGreaterThan(props.timeoutMs());
+            System.out.printf("Cold POST warm-up: %s ms (scenario timeout: %s ms)%n",
+                    result.get("warmupMs"), props.timeoutMs());
+            assertThat(((List<?>) result.get("trace")).size()).isEqualTo(12);
         }
     }
 
