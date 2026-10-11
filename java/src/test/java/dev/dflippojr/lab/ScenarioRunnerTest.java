@@ -7,7 +7,6 @@ import java.util.Map;
 import java.util.stream.Stream;
 
 import org.junit.jupiter.api.DynamicTest;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -29,31 +28,48 @@ class ScenarioRunnerTest {
     Stream<DynamicTest> everyScenarioMatchesItsExpectation() throws Exception {
         List<Scenario> scenarios = files.load();
         assertThat(scenarios).hasSize(12);
+        Map<String, List<String>> requiredKinds = Map.of(
+                "2a-duplicate", List.of("ack-lost"),
+                "2b-duplicate-idempotent", List.of("ack-lost", "dedupe"),
+                "3b-out-of-order-buffered", List.of("buffer", "release"),
+                "5b-schema-change-validated", List.of("reject", "dead-letter"),
+                "6a-poison-message", List.of("reject", "retry-scheduled", "dead-letter"),
+                "6b-poison-message-replay", List.of("dead-letter", "replay", "apply"));
         return scenarios.stream().map(s -> DynamicTest.dynamicTest(s.id(), () -> {
             Map<String, Object> result = runner.run(s);
             @SuppressWarnings("unchecked")
             Map<String, Object> expected = (Map<String, Object>) s.expect().get("record");
             @SuppressWarnings("unchecked")
             Map<String, Object> record = (Map<String, Object>) result.get("record");
-            assertThat(record.get("status")).as("status").isEqualTo(expected.get("status"));
-            assertThat(((Number) record.get("paidCents")).longValue()).as("paidCents")
+            assertThat(record.get("status")).as("%s status", s.id()).isEqualTo(expected.get("status"));
+            assertThat(((Number) record.get("paidCents")).longValue()).as("%s paidCents", s.id())
                     .isEqualTo(((Number) expected.get("paidCents")).longValue());
             if (s.expect().containsKey("dlq")) {
-                assertThat(ids(result.get("dlq"))).as("dlq").isEqualTo(s.expect().get("dlq"));
+                assertThat(ids(result.get("dlq"))).as("%s dlq", s.id()).isEqualTo(s.expect().get("dlq"));
             }
             if (s.expect().containsKey("dropped")) {
-                assertThat(ids(result.get("dropped"))).as("dropped").isEqualTo(s.expect().get("dropped"));
+                assertThat(ids(result.get("dropped"))).as("%s dropped", s.id()).isEqualTo(s.expect().get("dropped"));
             }
             if (Boolean.TRUE.equals(s.expect().get("ok"))) {
-                assertThat(record.get("applied")).as("applied").isEqualTo(List.of("E1", "E2", "E3"));
+                assertThat(record.get("applied")).as("%s applied", s.id()).isEqualTo(List.of("E1", "E2", "E3"));
+            }
+            List<String> required = requiredKinds.get(s.id());
+            if (required != null) {
+                assertThat(kinds(result)).as("%s required trace kinds", s.id()).containsAll(required);
+            }
+            if (s.id().equals("6a-poison-message")) {
+                assertThat(kinds(result)).as("%s forbidden trace kinds", s.id()).doesNotContain("replay", "timeout");
+            }
+            if (s.id().equals("3a-out-of-order")) {
+                reorderedSendRowsMarkTheHttpAttemptInsteadOfEnqueueing(result);
+            }
+            if (s.id().equals("4-combined")) {
+                combinedFailuresDoNotBlockIndependentDeliveries(result);
             }
         }));
     }
 
-    @Test
-    void reorderedSendRowsMarkTheHttpAttemptInsteadOfEnqueueing() throws Exception {
-        Scenario scenario = files.load().stream().filter(s -> s.id().equals("3a-out-of-order")).findFirst().orElseThrow();
-        Map<String, Object> result = runner.run(scenario);
+    private static void reorderedSendRowsMarkTheHttpAttemptInsteadOfEnqueueing(Map<String, Object> result) {
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> trace = (List<Map<String, Object>>) result.get("trace");
         assertThat(rowIndex(trace, "E2", "emit", null)).isLessThan(rowIndex(trace, "E3", "emit", null));
@@ -61,10 +77,7 @@ class ScenarioRunnerTest {
         assertThat(rowIndex(trace, "E2", "send", 1)).isLessThan(rowIndex(trace, "E2", "apply", null));
     }
 
-    @Test
-    void combinedFailuresDoNotBlockIndependentDeliveries() throws Exception {
-        Scenario scenario = files.load().stream().filter(s -> s.id().equals("4-combined")).findFirst().orElseThrow();
-        Map<String, Object> result = runner.run(scenario);
+    private static void combinedFailuresDoNotBlockIndependentDeliveries(Map<String, Object> result) {
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> trace = (List<Map<String, Object>>) result.get("trace");
         int buffered = rowIndex(trace, "E3", "buffer", null);
@@ -82,18 +95,6 @@ class ScenarioRunnerTest {
                     && (attempt == null || attempt.equals(row.get("attempt")))) return i;
         }
         throw new AssertionError("Missing " + eventId + " " + kind + " attempt " + attempt + ": " + trace);
-    }
-
-    @Test
-    void safeguardsLeaveTheirMarksInTheTrace() throws Exception {
-        Map<String, Scenario> byId = files.load().stream().collect(java.util.stream.Collectors.toMap(Scenario::id, s -> s));
-        assertThat(kinds(runner.run(byId.get("2a-duplicate")))).contains("ack-lost");
-        assertThat(kinds(runner.run(byId.get("2b-duplicate-idempotent")))).contains("ack-lost", "dedupe");
-        assertThat(kinds(runner.run(byId.get("3b-out-of-order-buffered")))).contains("buffer", "release");
-        assertThat(kinds(runner.run(byId.get("5b-schema-change-validated")))).contains("reject", "dead-letter");
-        assertThat(kinds(runner.run(byId.get("6a-poison-message")))).contains("reject", "retry-scheduled", "dead-letter")
-                .doesNotContain("replay", "timeout");
-        assertThat(kinds(runner.run(byId.get("6b-poison-message-replay")))).contains("dead-letter", "replay", "apply");
     }
 
     @SuppressWarnings("unchecked")
