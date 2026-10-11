@@ -23,7 +23,14 @@ public record LabProperties(
         if (scenariosDir == null) scenariosDir = "../scenarios";
         if (timeoutMs <= 0) timeoutMs = 300;
         if (backoffBaseMs <= 0) backoffBaseMs = 150;
-        if (sendAtMs == null || sendAtMs.isEmpty()) sendAtMs = List.of(0L, 40L, 80L);
+        if (sendAtMs == null || sendAtMs.isEmpty()) {
+            sendAtMs = List.of(0L, 40L, 80L);
+        } else {
+            if (sendAtMs.size() != 3 || sendAtMs.stream().anyMatch(time -> time == null)) {
+                throw new IllegalArgumentException("lab.send-at-ms must contain exactly three non-null emission times (E1, E2, E3)");
+            }
+            sendAtMs = List.copyOf(sendAtMs);
+        }
         if (reorderDelayMs <= 0) reorderDelayMs = 200;
         if (replayDelayMs <= 0) replayDelayMs = 400;
     }

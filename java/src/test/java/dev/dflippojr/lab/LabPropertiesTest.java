@@ -1,8 +1,16 @@
 package dev.dflippojr.lab;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.stream.Stream;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Configuration;
@@ -48,6 +56,39 @@ class LabPropertiesTest {
                     assertThat(properties.replayDelayMs()).isEqualTo(700);
                     assertThat(properties.exportDir()).isEqualTo("custom-export");
                 });
+    }
+
+    @ParameterizedTest
+    @MethodSource("invalidOverrides")
+    void incompleteOrNullEmissionTimesFailAtConstruction(List<Long> times) {
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> new LabProperties(null, null, 0, 0, times, 0, 0))
+                .withMessageContaining("lab.send-at-ms")
+                .withMessageContaining("exactly three non-null emission times");
+    }
+
+    static Stream<List<Long>> invalidOverrides() {
+        return Stream.of(List.of(0L), List.of(0L, 40L), List.of(0L, 40L, 80L, 120L),
+                Arrays.asList(0L, null, 80L));
+    }
+
+    @Test
+    void incompleteBoundOverrideFailsWithConfigurationDiagnostics() {
+        contextRunner.withPropertyValues("lab.send-at-ms=0,40").run(context -> {
+            assertThat(context).hasFailed();
+            assertThat(context.getStartupFailure()).hasRootCauseInstanceOf(IllegalArgumentException.class)
+                    .hasStackTraceContaining("lab.send-at-ms must contain exactly three");
+        });
+    }
+
+    @Test
+    void emptyOverrideUsesDefaultsAndValidOverrideIsCopied() {
+        assertThat(new LabProperties(null, null, 0, 0, List.of(), 0, 0).sendAtMs())
+                .containsExactly(0L, 40L, 80L);
+        List<Long> times = new ArrayList<>(List.of(10L, 50L, 90L));
+        LabProperties properties = new LabProperties(null, null, 0, 0, times, 0, 0);
+        times.clear();
+        assertThat(properties.sendAtMs()).containsExactly(10L, 50L, 90L);
     }
 
     @Configuration(proxyBeanMethods = false)
