@@ -1,29 +1,30 @@
 {
   "scenarioId" : "1a-transient-timeout",
   "mode" : "executed",
-  "generatedAt" : "2026-10-06T10:27:21.418037500Z",
+  "generatedAt" : "2026-10-11T16:56:15.113461700Z",
+  "warmupMs" : 130,
   "runtime" : {
     "transport" : "HTTP/1.1 on localhost (JDK HttpClient -> embedded Tomcat)",
-    "springBoot" : "4.1.1",
-    "java" : "21.0.12.1+1-LTS"
+    "java" : "21.0.12.1+1-LTS",
+    "springBoot" : "4.1.1"
   },
   "timing" : {
-    "sendAtMs" : [ 0, 40, 80 ],
-    "backoffBaseMs" : 150,
+    "reorderDelayMs" : 200,
     "timeoutMs" : 300,
-    "reorderDelayMs" : 200
+    "backoffBaseMs" : 150,
+    "sendAtMs" : [ 0, 40, 80 ]
   },
   "guards" : {
-    "ordering" : false,
-    "backoff" : "exponential",
     "idempotency" : false,
-    "retryLimit" : 3,
-    "deadLetter" : true,
+    "backoff" : "exponential",
+    "ordering" : false,
+    "replayAfterFix" : false,
     "schemaValidation" : false,
-    "replayAfterFix" : false
+    "deadLetter" : true,
+    "retryLimit" : 3
   },
   "trace" : [ {
-    "t" : 1,
+    "t" : 0,
     "actor" : "producer",
     "kind" : "emit",
     "eventId" : "E1",
@@ -37,7 +38,7 @@
     "eventType" : "ClaimSubmitted",
     "attempt" : 1
   }, {
-    "t" : 32,
+    "t" : 3,
     "actor" : "downstream",
     "kind" : "apply",
     "eventId" : "E1",
@@ -45,28 +46,28 @@
     "status" : "Submitted",
     "paidCents" : 0
   }, {
-    "t" : 32,
+    "t" : 3,
     "actor" : "downstream",
     "kind" : "ack",
     "eventId" : "E1",
     "eventType" : "ClaimSubmitted",
     "attempt" : 1
   }, {
-    "t" : 48,
+    "t" : 50,
     "actor" : "producer",
     "kind" : "emit",
     "eventId" : "E2",
     "eventType" : "ClaimAccepted",
     "seq" : 2
   }, {
-    "t" : 48,
+    "t" : 50,
     "actor" : "queue",
     "kind" : "send",
     "eventId" : "E2",
     "eventType" : "ClaimAccepted",
     "attempt" : 1
   }, {
-    "t" : 50,
+    "t" : 53,
     "actor" : "downstream",
     "kind" : "apply",
     "eventId" : "E2",
@@ -74,35 +75,35 @@
     "status" : "Accepted",
     "paidCents" : 0
   }, {
-    "t" : 50,
+    "t" : 53,
     "actor" : "downstream",
     "kind" : "ack",
     "eventId" : "E2",
     "eventType" : "ClaimAccepted",
     "attempt" : 1
   }, {
-    "t" : 94,
+    "t" : 81,
     "actor" : "producer",
     "kind" : "emit",
     "eventId" : "E3",
     "eventType" : "ClaimPaid",
     "seq" : 3
   }, {
-    "t" : 94,
+    "t" : 81,
     "actor" : "queue",
     "kind" : "send",
     "eventId" : "E3",
     "eventType" : "ClaimPaid",
     "attempt" : 1
   }, {
-    "t" : 408,
+    "t" : 395,
     "actor" : "queue",
     "kind" : "timeout",
     "eventId" : "E3",
     "eventType" : "ClaimPaid",
     "attempt" : 1
   }, {
-    "t" : 408,
+    "t" : 395,
     "actor" : "queue",
     "kind" : "retry-scheduled",
     "eventId" : "E3",
@@ -110,21 +111,21 @@
     "attempt" : 1,
     "note" : "retry in 150 ms"
   }, {
-    "t" : 563,
+    "t" : 550,
     "actor" : "queue",
     "kind" : "send",
     "eventId" : "E3",
     "eventType" : "ClaimPaid",
     "attempt" : 2
   }, {
-    "t" : 873,
+    "t" : 863,
     "actor" : "queue",
     "kind" : "timeout",
     "eventId" : "E3",
     "eventType" : "ClaimPaid",
     "attempt" : 2
   }, {
-    "t" : 873,
+    "t" : 863,
     "actor" : "queue",
     "kind" : "retry-scheduled",
     "eventId" : "E3",
@@ -132,14 +133,14 @@
     "attempt" : 2,
     "note" : "retry in 300 ms"
   }, {
-    "t" : 1186,
+    "t" : 1173,
     "actor" : "queue",
     "kind" : "send",
     "eventId" : "E3",
     "eventType" : "ClaimPaid",
     "attempt" : 3
   }, {
-    "t" : 1189,
+    "t" : 1176,
     "actor" : "downstream",
     "kind" : "apply",
     "eventId" : "E3",
@@ -147,7 +148,7 @@
     "status" : "Paid",
     "paidCents" : 12000
   }, {
-    "t" : 1189,
+    "t" : 1176,
     "actor" : "downstream",
     "kind" : "ack",
     "eventId" : "E3",
