@@ -2,3 +2,10 @@ node_modules/
 java/target/
 lcov.info
 dist-test/
+
+.ui-testing/
+output/
+.playwright/
+playwright-report/
+test-results/
+.playwright-cli/
