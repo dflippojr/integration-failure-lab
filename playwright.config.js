@@ -14,7 +14,7 @@ export default defineConfig({
   },
   projects: ['light', 'dark'].flatMap(colorScheme => [
     { name: 'desktop-' + colorScheme, use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 }, colorScheme } },
-    { name: 'phone-' + colorScheme, use: { ...devices['Pixel 7'], colorScheme } },
+    { name: 'phone-' + colorScheme, use: { ...devices['Pixel 7'], viewport: { width: 412, height: 915 }, colorScheme } },
   ]),
   webServer: {
     command: 'node checks/ui-instance.mjs serve',
