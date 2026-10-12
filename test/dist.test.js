@@ -2,11 +2,12 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
+import { judge } from '../engine/engine.js';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const GENERATED = ['engine.js', 'lab.js', 'lab.css', 'scenarios.js', 'executed.js'];
@@ -59,14 +60,67 @@ test('every scenario has exactly one matching recording, and none are orphaned',
   assert.equal(new Set(recordedIds).size, recordedIds.length, 'Two recordings share a scenarioId.');
 });
 
-test("each recorded record matches its scenario's expect.record", () => {
-  for (const { file: f, data: scenario } of scenarios) {
+for (const { file, data: scenario } of scenarios) {
+  test(`recorded replay ${scenario.id} matches its scenario expectations`, () => {
     const rec = recordingByScenarioId.get(scenario.id);
-    if (!rec) continue; // reported by the coverage test
-    const recorded = rec.data.record;
-    for (const [k, v] of Object.entries(scenario.expect.record)) {
-      assert.deepEqual(recorded[k], v, `executed/${rec.file}: record.${k} differs from scenarios/${f} expect.record.${k}; re-record with the Java runner.`);
+    if (!rec) return; // reported by the coverage test
+    const { record, dlq, dropped, buffered } = rec.data;
+    const verdict = judge(record, { dlq, dropped, buffered });
+    const context = `executed/${rec.file} vs scenarios/${file}`;
+    const expect = scenario.expect;
+    for (const [key, value] of Object.entries(expect.record)) {
+      assert.deepEqual(record[key], value, `${context}: record.${key} differs from expect.record.${key}; re-record with the Java runner.`);
     }
+    // An independent literal oracle catches order, duplicates and omissions even if judge changes.
+    if (expect.ok === true) {
+      assert.deepEqual(record.applied, ['E1', 'E2', 'E3'], `${context}: record.applied must be exactly [E1,E2,E3] for expect.ok=true.`);
+    }
+    if ('ok' in expect) {
+      assert.equal(verdict.ok, expect.ok, `${context}: judged ok differs from expect.ok; ${verdict.problems.join('; ')}`);
+    }
+    if ('visible' in expect) {
+      assert.equal(verdict.visible, expect.visible, `${context}: judged visible differs from expect.visible.`);
+    }
+    for (const [key, entries] of Object.entries({ dlq, dropped })) {
+      if (key in expect) {
+        assert.deepEqual(entries.map(entry => entry.eventId), expect[key], `${context}: ${key} differs from expect.${key}.`);
+      }
+    }
+  });
+}
+
+test('rebuilt dist rejects wrong-order, duplicate and missing applied events in 6b', () => {
+  const fixture = mkdtempSync(join(tmpdir(), 'ifl-bad-recording-'));
+  try {
+    for (const dir of ['scripts', 'engine', 'ui', 'scenarios', 'executed', 'dist']) {
+      cpSync(join(tmp, dir), join(fixture, dir), { recursive: true });
+    }
+    mkdirSync(join(fixture, 'test'));
+    cpSync(join(root, 'test', 'dist.test.js'), join(fixture, 'test', 'dist.test.js'));
+    cpSync(join(root, 'package.json'), join(fixture, 'package.json'));
+    const recordingFile = join(fixture, 'executed', '6b-poison-message-replay.json');
+    const recording = JSON.parse(readFileSync(recordingFile, 'utf8'));
+    const env = { ...process.env };
+    delete env.NODE_TEST_CONTEXT; // The child is a fresh test runner, not this runner's worker.
+    for (const applied of [['E1', 'E3', 'E2'], ['E1', 'E2', 'E3', 'E3'], ['E1', 'E3']]) {
+      // Change only the applied list: Paid, 12000 cents and an empty DLQ still match.
+      recording.record.applied = applied;
+      writeFileSync(recordingFile, JSON.stringify(recording));
+      const built = spawnSync(process.execPath, [join(fixture, 'scripts', 'build.mjs'), 'dist'], { encoding: 'utf8' });
+      assert.equal(built.status, 0, built.stderr);
+      const checked = spawnSync(process.execPath, [
+        '--test', '--test-concurrency=1', '--test-reporter=tap',
+        '--test-name-pattern=^(dist/|recorded replay )', join(fixture, 'test', 'dist.test.js'),
+      ], { encoding: 'utf8', env });
+      const output = checked.stdout + checked.stderr;
+      assert.equal(checked.status, 1, output);
+      assert.match(output, /ok \d+ - dist\/executed\.js is current/);
+      assert.match(output, /not ok \d+ - recorded replay 6b-poison-message-replay matches its scenario expectations/);
+      assert.ok(output.includes('executed/6b-poison-message-replay.json vs scenarios/6b-poison-message-replay.json: record.applied'), output);
+      assert.match(output, /# fail 1\b/);
+    }
+  } finally {
+    rmSync(fixture, { recursive: true, force: true });
   }
 });
 
