@@ -24,6 +24,8 @@ python -m http.server 4180 --directory dist   # open http://127.0.0.1:4180
 
 The runner reads scenarios from `../scenarios` relative to where it starts, so run the jar from `java/`.
 
+An optional `lab.send-at-ms` override must supply exactly three emission times, one each for E1, E2, and E3 (for example, `--lab.send-at-ms=10,50,90`). Omitting it or supplying an empty list uses `0,40,80`; incomplete lists fail configuration binding before delivery starts.
+
 The website vendors the bundle into `public/lab/` (`node scripts/build.mjs site`, which writes to `../personal-website/public/lab`, so the website checkout must sit next to this repo). The build takes a fixed target name, not a path: `dist` (the default), `site`, or `test` (the git-ignored `dist-test/` the UI tests use); anything else exits with an error. Mount with `mountLab(element, { headingLevel })`: the scenario title is an `h3` by default, for a lab placed under an `h2`; pass the level that fits your page (2-6).
 
 Guided mode loads `executed.js` only when **Replay real run** is activated. Selecting Executed or restoring a saved `ifl-source=exec` preference does not fetch recordings. A small `RECORDING_IDS` manifest in generated `scenarios.js` comes from actual recording keys, so scenarios without recordings remain simulation-only. Pending loads share one import across mounts and disable repeated Run requests; changing mode, scenario, or source discards the old playback request. Successful imports stay cached. Loading and failures appear in the named **Replay status** region; failures offer **Retry replay**, and simulation remains usable.

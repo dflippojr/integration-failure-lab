@@ -66,21 +66,23 @@ public class ScenarioRunner {
         store.reset();
         context.begin(scenario, trace);
 
-        Delivery delivery = new Delivery(client, scenario, trace);
-        List<ClaimEvent> events = ClaimEvent.sequence();
-        events.forEach(e -> delivery.originals.put(e.eventId(), e));
-        for (int i = 0; i < events.size(); i++) {
-            ClaimEvent event = producerPayload(events.get(i), scenario.failures());
-            delivery.scheduler.schedule(() -> {
-                trace.log("producer", "emit", event, "seq", event.seq());
-                delivery.send(event, 1);
-            }, props.sendAtMs().get(i), TimeUnit.MILLISECONDS);
-        }
+        ScheduledExecutorService scheduler = newDeliveryScheduler();
+        Delivery delivery;
         boolean finished;
         try {
+            delivery = new Delivery(client, scenario, trace, scheduler);
+            List<ClaimEvent> events = ClaimEvent.sequence();
+            events.forEach(e -> delivery.originals.put(e.eventId(), e));
+            for (int i = 0; i < events.size(); i++) {
+                ClaimEvent event = producerPayload(events.get(i), scenario.failures());
+                scheduler.schedule(() -> {
+                    trace.log("producer", "emit", event, "seq", event.seq());
+                    delivery.send(event, 1);
+                }, props.sendAtMs().get(i), TimeUnit.MILLISECONDS);
+            }
             finished = delivery.done.await(30, TimeUnit.SECONDS);
         } finally {
-            delivery.scheduler.shutdownNow();
+            scheduler.shutdownNow();
         }
         if (!finished) throw new IllegalStateException("Scenario " + scenario.id() + " did not finish in 30 s");
 
@@ -100,6 +102,11 @@ public class ScenarioRunner {
         result.put("dropped", List.copyOf(delivery.dropped));
         result.put("buffered", store.buffered());
         return result;
+    }
+
+    ScheduledExecutorService newDeliveryScheduler() {
+        // Three independent HTTP attempts plus capacity for emissions and retry timers.
+        return Executors.newScheduledThreadPool(4);
     }
 
     /** The producer side of the schema-change and poison failures: a renamed field, or an amount shipped as text. */
@@ -139,8 +146,7 @@ public class ScenarioRunner {
     }
 
     private final class Delivery {
-        // Three independent HTTP attempts plus capacity for emissions and retry timers.
-        final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(4);
+        final ScheduledExecutorService scheduler;
         final CountDownLatch done = new CountDownLatch(3);
         final List<Map<String, Object>> dlq = Collections.synchronizedList(new ArrayList<>());
         final List<Map<String, Object>> dropped = Collections.synchronizedList(new ArrayList<>());
@@ -150,7 +156,8 @@ public class ScenarioRunner {
         private final Scenario scenario;
         private final Trace trace;
 
-        Delivery(RestClient client, Scenario scenario, Trace trace) {
+        Delivery(RestClient client, Scenario scenario, Trace trace, ScheduledExecutorService scheduler) {
+            this.scheduler = scheduler;
             this.client = client;
             this.scenario = scenario;
             this.trace = trace;
