@@ -11,8 +11,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
@@ -32,6 +32,8 @@ import org.springframework.web.client.RestClientException;
  */
 @Component
 public class ScenarioRunner {
+
+    private static final long QUIESCE_SECONDS = 5;
 
     private final ClaimStore store;
     private final RunContext context;
@@ -67,24 +69,25 @@ public class ScenarioRunner {
         context.begin(scenario, trace);
 
         ScheduledExecutorService scheduler = newDeliveryScheduler();
-        Delivery delivery;
-        boolean finished;
+        Delivery delivery = new Delivery(client, scenario, trace, scheduler);
         try {
-            delivery = new Delivery(client, scenario, trace, scheduler);
             List<ClaimEvent> events = ClaimEvent.sequence();
             events.forEach(e -> delivery.originals.put(e.eventId(), e));
             for (int i = 0; i < events.size(); i++) {
                 ClaimEvent event = producerPayload(events.get(i), scenario.failures());
-                scheduler.schedule(() -> {
+                delivery.schedule("producer emission of " + describe(event), () -> {
                     trace.log("producer", "emit", event, "seq", event.seq());
                     delivery.send(event, 1);
-                }, props.sendAtMs().get(i), TimeUnit.MILLISECONDS);
+                }, props.sendAtMs().get(i));
             }
-            finished = delivery.done.await(30, TimeUnit.SECONDS);
+            delivery.await(scenarioLimit());
+        } catch (InterruptedException | RuntimeException failure) {
+            delivery.thrown(failure);
+            throw failure;
         } finally {
-            scheduler.shutdownNow();
+            quiesce(scheduler, delivery);
         }
-        if (!finished) throw new IllegalStateException("Scenario " + scenario.id() + " did not finish in 30 s");
+        delivery.rethrowFailure();
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("scenarioId", scenario.id());
@@ -107,6 +110,30 @@ public class ScenarioRunner {
     ScheduledExecutorService newDeliveryScheduler() {
         // Three independent HTTP attempts plus capacity for emissions and retry timers.
         return Executors.newScheduledThreadPool(4);
+    }
+
+    /** The overall bound for a run that neither settles every event nor fails. */
+    Duration scenarioLimit() {
+        return Duration.ofSeconds(30);
+    }
+
+    /**
+     * Drops queued emissions, interrupts in-flight work and waits a bounded time for it, so failures
+     * from tasks that were already running are recorded before the caller sees the outcome.
+     */
+    private static void quiesce(ScheduledExecutorService scheduler, Delivery delivery) {
+        scheduler.shutdownNow();
+        try {
+            if (!scheduler.awaitTermination(QUIESCE_SECONDS, TimeUnit.SECONDS)) {
+                delivery.fail(new IllegalStateException("delivery workers did not stop"));
+            }
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    private static String describe(ClaimEvent event) {
+        return event.eventId() + " (" + event.type() + ")";
     }
 
     /** The producer side of the schema-change and poison failures: a renamed field, or an amount shipped as text. */
@@ -147,7 +174,6 @@ public class ScenarioRunner {
 
     private final class Delivery {
         final ScheduledExecutorService scheduler;
-        final CountDownLatch done = new CountDownLatch(3);
         final List<Map<String, Object>> dlq = Collections.synchronizedList(new ArrayList<>());
         final List<Map<String, Object>> dropped = Collections.synchronizedList(new ArrayList<>());
         final Map<String, ClaimEvent> originals = new ConcurrentHashMap<>();
@@ -155,6 +181,10 @@ public class ScenarioRunner {
         private final RestClient client;
         private final Scenario scenario;
         private final Trace trace;
+        /** Events not yet applied, dead-lettered without a pending replay, or dropped. Guarded by {@code this}. */
+        private int unsettled = 3;
+        /** The first failure of the run; later ones are attached to it as suppressed. Guarded by {@code this}. */
+        private Exception primary;
 
         Delivery(RestClient client, Scenario scenario, Trace trace, ScheduledExecutorService scheduler) {
             this.scheduler = scheduler;
@@ -163,16 +193,77 @@ public class ScenarioRunner {
             this.trace = trace;
         }
 
+        /**
+         * Schedules work whose unexpected failure ends the run. Futures are not kept: each task reports
+         * into this delivery, which {@link #await} watches, so nothing is lost to an unobserved future.
+         */
+        void schedule(String what, Runnable task, long delayMs) {
+            scheduler.schedule(() -> {
+                try {
+                    task.run();
+                } catch (RejectedExecutionException refused) {
+                    if (!scheduler.isShutdown()) fail(taskFailure(what, refused));
+                } catch (RuntimeException | Error unexpected) {
+                    fail(taskFailure(what, unexpected));
+                }
+            }, delayMs, TimeUnit.MILLISECONDS);
+        }
+
+        private IllegalStateException taskFailure(String what, Throwable cause) {
+            return new IllegalStateException("Scenario " + scenario.id() + ": " + what + " failed: " + cause, cause);
+        }
+
         void send(ClaimEvent event, int attempt) {
             long delay = scenario.failures().delayed(event.type(), attempt) ? props.reorderDelayMs() : 0;
-            scheduler.schedule(() -> post(event, attempt), delay, TimeUnit.MILLISECONDS);
+            schedule("delivery of " + describe(event) + " attempt " + attempt, () -> post(event, attempt), delay);
+        }
+
+        /** Waits until every event settles, a task fails, the limit passes, or the caller is interrupted. */
+        synchronized void await(Duration limit) throws InterruptedException {
+            long deadline = System.nanoTime() + limit.toNanos();
+            while (primary == null && unsettled > 0) {
+                long left = deadline - System.nanoTime();
+                if (left <= 0) {
+                    throw new IllegalStateException("Scenario " + scenario.id() + " did not finish in " + limit.toMillis() + " ms");
+                }
+                TimeUnit.NANOSECONDS.timedWait(this, left);
+            }
+            rethrowFailure();
+        }
+
+        /**
+         * Makes the exception the run is throwing primary: a task failure surfaced by {@link #await}, or the
+         * caller's own setup, interrupt or timeout exception, which keeps any earlier task failure as suppressed.
+         */
+        synchronized void thrown(Exception thrown) {
+            if (primary != null && primary != thrown) thrown.addSuppressed(primary);
+            primary = thrown;
+        }
+
+        /** Records a task or shutdown failure. The first one wins; later ones are attached to it as suppressed. */
+        synchronized void fail(Exception cause) {
+            if (primary == null) {
+                primary = cause;
+                notifyAll();
+            } else if (primary != cause) {
+                primary.addSuppressed(cause);
+            }
+        }
+
+        /** Throws a recorded task failure, including one recorded after every event had settled. */
+        synchronized void rethrowFailure() {
+            if (primary instanceof RuntimeException failure) throw failure;
+        }
+
+        private synchronized void settled() {
+            if (--unsettled == 0) notifyAll();
         }
 
         private void post(ClaimEvent event, int attempt) {
             trace.log("queue", "send", event, "attempt", attempt);
             try {
                 postEvent(client, event, attempt);
-                done.countDown();
+                settled();
             } catch (HttpClientErrorException rejected) {
                 giveUp(event, attempt, "rejected as non-retryable");
             } catch (HttpServerErrorException failed) {
@@ -182,6 +273,8 @@ public class ScenarioRunner {
                     retryOrGiveUp(event, attempt);
                 }
             } catch (RestClientException timeoutOrServerError) {
+                // shutdownNow interrupts in-flight sends: that is cancellation, not a delivery timeout.
+                if (Thread.currentThread().isInterrupted() || scheduler.isShutdown()) return;
                 onTimeout(event, attempt);
             }
         }
@@ -196,7 +289,7 @@ public class ScenarioRunner {
             if (attempt <= guards.retryLimit()) {
                 long wait = guards.backoffMs(props.backoffBaseMs(), attempt);
                 trace.log("queue", "retry-scheduled", event, "attempt", attempt, "note", "retry in " + wait + " ms");
-                scheduler.schedule(() -> send(event, attempt + 1), wait, TimeUnit.MILLISECONDS);
+                schedule("retry of " + describe(event) + " attempt " + (attempt + 1), () -> send(event, attempt + 1), wait);
             } else {
                 giveUp(event, attempt, "retry limit (" + guards.retryLimit() + ") reached");
             }
@@ -216,14 +309,14 @@ public class ScenarioRunner {
                 dlq.add(entry);
                 trace.log("queue", "dead-letter", event, "attempt", attempt, "note", reason);
                 if (scenario.safeguards().replayAfterFix() && replayed.add(event.eventId())) {
-                    scheduler.schedule(() -> replay(event, entry), props.replayDelayMs(), TimeUnit.MILLISECONDS);
+                    schedule("replay of " + describe(event), () -> replay(event, entry), props.replayDelayMs());
                     return; // the delivery is not finished until the replay settles
                 }
             } else {
                 dropped.add(entry);
                 trace.log("queue", "drop", event, "attempt", attempt, "note", reason + "; no dead-letter queue");
             }
-            done.countDown();
+            settled();
         }
     }
 }

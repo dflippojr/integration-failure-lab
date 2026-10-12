@@ -30,6 +30,16 @@ public record Scenario(String id, int order, String title, Failures failures, Sa
     public record Safeguards(int retryLimit, String backoff, boolean idempotency, boolean ordering,
                              boolean schemaValidation, boolean deadLetter, boolean replayAfterFix) {
 
+        static final List<String> BACKOFFS = List.of("none", "fixed", "exponential");
+
+        public Safeguards {
+            // Reject here rather than inside a scheduled retry, where the failure would surface late.
+            if (backoff == null || !BACKOFFS.contains(backoff)) {
+                throw new IllegalArgumentException("Unsupported safeguards.backoff \"" + backoff
+                        + "\"; expected one of " + String.join(", ", BACKOFFS));
+            }
+        }
+
         public long backoffMs(long base, int retryNumber) {
             return switch (backoff) {
                 case "none" -> 0;
@@ -64,14 +74,19 @@ public record Scenario(String id, int order, String title, Failures failures, Sa
                 eventOf(f.get("poison")));
 
         Map<String, Object> g = (Map<String, Object>) json.getOrDefault("safeguards", Map.of());
-        Safeguards safeguards = new Safeguards(
-                ((Number) g.getOrDefault("retryLimit", 3)).intValue(),
-                (String) g.getOrDefault("backoff", "exponential"),
-                (Boolean) g.getOrDefault("idempotency", false),
-                (Boolean) g.getOrDefault("ordering", false),
-                (Boolean) g.getOrDefault("schemaValidation", false),
-                (Boolean) g.getOrDefault("deadLetter", true),
-                (Boolean) g.getOrDefault("replayAfterFix", false));
+        Safeguards safeguards;
+        try {
+            safeguards = new Safeguards(
+                    ((Number) g.getOrDefault("retryLimit", 3)).intValue(),
+                    (String) g.getOrDefault("backoff", "exponential"),
+                    (Boolean) g.getOrDefault("idempotency", false),
+                    (Boolean) g.getOrDefault("ordering", false),
+                    (Boolean) g.getOrDefault("schemaValidation", false),
+                    (Boolean) g.getOrDefault("deadLetter", true),
+                    (Boolean) g.getOrDefault("replayAfterFix", false));
+        } catch (IllegalArgumentException invalid) {
+            throw new IllegalArgumentException("Scenario " + json.get("id") + ": " + invalid.getMessage(), invalid);
+        }
 
         return new Scenario((String) json.get("id"), ((Number) json.getOrDefault("order", 0)).intValue(),
                 (String) json.get("title"), failures, safeguards,
