@@ -5,10 +5,16 @@
   "description": "Deterministic simulator of integration failures (timeouts, duplicates, reordering, schema changes) and their safeguards.",
   "scripts": {
     "test": "node --test",
-    "build": "node scripts/build.mjs"
+    "build": "node scripts/build.mjs",
+    "ui:start": "node checks/ui-instance.mjs start",
+    "ui:stop": "node checks/ui-instance.mjs stop",
+    "test:ui": "playwright test"
   },
   "engines": {
     "node": ">=20"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "@playwright/test": "^1.64.0"
+  }
 }

@@ -4,7 +4,7 @@ Break a small healthcare-style integration on purpose, then watch what happens: 
 
 Try it on [dflippojr.dev](https://dflippojr.dev/#lab), where it's the site's playground.
 
-**Status:** v1 simulation engine and all twelve scenarios built and tested (`npm test`, Node 20+, no dependencies). Browser UI built (`ui/`): a first-visit picker for **Guided** or **Free-form**, animated trace, expected-vs-observed record, verdict, and final Dead-letter queue, Dropped messages, and Ordering buffer contents. Each final group shows its count and either entry details or an explicit empty state. Trace counters (including Parked / dropped events) are cumulative history, not current queue occupancy: replay can drain the final DLQ while leaving historical parked events counted. Snapshots appear when playback finishes, including with reduced motion, and clear on a new run or mode, scenario, or source switch. **v2 (Java 21 / Spring Boot 4.1.1)** in `java/` executes the same scenario files over real HTTP (a delivery queue with read timeouts, retries, and a dead-letter queue posting to an embedded-Tomcat claim-status service with server-side fault injection) and exports traces to `executed/`. Guided mode on the site can replay those recorded runs next to the simulation.
+**Status:** v1 simulation engine and all twelve scenarios built and tested (`npm test`, Node 20+, no runtime dependencies). Browser UI built (`ui/`): a first-visit picker for **Guided** or **Free-form**, animated trace, expected-vs-observed record, verdict, and final Dead-letter queue, Dropped messages, and Ordering buffer contents. Each final group shows its count and either entry details or an explicit empty state. Trace counters (including Parked / dropped events) are cumulative history, not current queue occupancy: replay can drain the final DLQ while leaving historical parked events counted. Snapshots appear when playback finishes, including with reduced motion, and clear on a new run or mode, scenario, or source switch. **v2 (Java 21 / Spring Boot 4.1.1)** in `java/` executes the same scenario files over real HTTP (a delivery queue with read timeouts, retries, and a dead-letter queue posting to an embedded-Tomcat claim-status service with server-side fault injection) and exports traces to `executed/`. Guided mode on the site can replay those recorded runs next to the simulation.
 
 - [Architecture](docs/ARCHITECTURE.md): components, event model, what's simulated vs. executed
 - [Scenarios](docs/SCENARIOS.md): the v1 scenario matrix with expected outcomes
@@ -49,14 +49,19 @@ The drift tests also traverse the static imports, check that recordings are abse
 
 All data is synthetic. No real payers, patients, or PHI.
 
+### Disposable UI testing
+
+See [the UI testing contract](docs/ui-testing.md) for isolated startup, synthetic journeys, device coverage and cleanup. Run `npm ci`, then `npx playwright install chromium`, and `npm run test:ui -- --workers=1`. The test runner owns its loopback server; finish with `npm run ui:stop`, including after failures. For manual exploration use `npm run ui:start` and the printed local URL. No backend or credentials are required.
+
 ### CI
 
-GitHub Actions runs two workflows on pushes and pull requests:
+GitHub Actions runs three workflows on pushes and pull requests:
 
+- `.github/workflows/ui.yml`: isolated desktop/Pixel 7 Playwright journeys in light/dark, breakpoint and live-resize checks on GitHub-hosted runners with one worker.
 - `.github/workflows/test.yml`: `npm test` (Node 22) and `./mvnw -B verify` in `java/` (Java 21).
 - `.github/workflows/sonar.yml`: SonarCloud analysis with coverage (lcov from the Node test runner, JaCoCo from the Java module). It runs on pushes to `main` and on pull requests from this repo, and fails when the quality gate fails. Project keys are in `sonar-project.properties`.
 
-Dependabot checks weekly for Maven updates in `/java`, npm updates at `/`, and GitHub Actions updates at `/`, as configured in `.github/dependabot.yml`. The root `package.json` currently has no npm dependencies, so that entry may produce no update PRs.
+Dependabot checks weekly for Maven updates in `/java`, npm updates at `/`, and GitHub Actions updates at `/`, as configured in `.github/dependabot.yml`. The root npm entry covers the Playwright test dependency.
 
 SonarCloud requires an authorized analysis token named `SONAR_TOKEN` in repository **Actions** secrets for ordinary runs and separately in **Dependabot** secrets for Dependabot PRs (Settings → Secrets and variables → Dependabot → New repository secret). GitHub supplies the appropriate secret store through the same workflow reference; Actions secrets are unavailable to Dependabot-triggered runs. Fork PRs remain excluded. If the token is absent, the SonarCloud workflow emits a notice and a job summary and skips analysis cleanly; this is not a successful analysis or a passing quality gate. The separate test workflow still runs.
 
