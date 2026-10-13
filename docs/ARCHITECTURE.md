@@ -39,6 +39,7 @@ Let a visitor see why integration reliability is hard and what the standard fixe
 2. **Queue panel:** cumulative counters (attempts, retries, parked / dropped events) while the trace plays, then the final DLQ, dropped and ordering-buffer contents (see below).
 3. **Final claim record vs. expected record**, with the differences highlighted, for example "paid twice: $240 instead of $120".
 4. **One-sentence verdict** plus the tradeoff of the safeguard that fixed it. For example, idempotency needs a dedupe store and a retention window, and buffering for order adds latency.
+5. **Compared with your previous run** (Free-form only): after the second and later Free-form runs finish playing, the settings that changed, worded like the form (for example "Idempotent consumer (dedupe on eventId): off → on"), and a Previous / This run table of verdict, status, paid and events applied with differences highlighted, or "Same settings as your previous run." The UI keeps only the last completed Free-form run, in memory: a run replaced before it finishes is not kept, and switching mode clears it. Guided mode gets the same before/after from its scenario pairs.
 
 ## Simulated vs. executed
 
@@ -60,7 +61,7 @@ From Guided, **Try this in Free-form** opens the current scenario in Free-form w
 ## Tests
 
 - `test/engine.test.js`: all twelve scenarios against their `expect` blocks, determinism, and targeted trace assertions.
-- `test/ui.test.js`: accessibility structure of the UI (heading levels, labels, focusable trace region), final queue snapshots, deferred loading of recordings, and the Guided-to-Free-form pre-fill (every expressible scenario reproduces its guided run).
+- `test/ui.test.js`: accessibility structure of the UI (heading levels, labels, focusable trace region), final queue snapshots, deferred loading of recordings, and the Guided-to-Free-form pre-fill (every expressible scenario reproduces its guided run), and the Free-form comparison with the previous run.
 - `test/dist.test.js`: `dist/` matches `npm run build` output, every scenario has exactly one recording, and the initial static import graph excludes recordings and stays under the byte baseline.
 - `test/build.test.js`: `scripts/build.mjs` accepts only its fixed target names.
 - `java/src/test/java/dev/dflippojr/lab/ScenarioRunnerTest.java`: runs all twelve scenarios over real HTTP against the same expectations and checks that independent deliveries proceed during a timeout.

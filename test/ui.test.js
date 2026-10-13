@@ -119,7 +119,7 @@ test('guided and free-form wrap the bar, controls, status and output in one two-
       finally { globalThis.FormData = OriginalFormData; }
     }
     assert.equal(output.hidden, false);
-    assert.deepEqual(output.children.map(c => c.className || c.tagName), ['ifl-kicker', 'ifl-stats', 'ifl-trace-scroll', 'ifl-verdict ifl-ok', 'ifl-final-state', 'ifl-note']);
+    assert.deepEqual(output.children.map(c => c.className || c.tagName), ['ifl-kicker', 'ifl-stats', 'ifl-trace-scroll', 'ifl-verdict ifl-ok', 'ifl-compare', 'ifl-final-state', 'ifl-note']);
     assert.equal(output.find(e => e.className.startsWith('ifl-verdict'))[0].getAttribute('role'), 'status');
   }
 });
@@ -611,4 +611,117 @@ test('reaching Free-form through the mode switch after a pre-fill shows the defa
   root.find(e => e.tagName === 'BUTTON' && e.text() === 'Switch to free-form')[0].listeners.click();
   assert.deepEqual(submitted(byClass(root, 'ifl-form')), FREE_FORM_DEFAULTS);
   assert.deepEqual(submitted(byClass(mount(undefined, 'free'), 'ifl-form')), FREE_FORM_DEFAULTS);
+});
+
+// Submit the Free-form with these field values, as FormData would read them.
+function submitValues(root, values) {
+  const OriginalFormData = globalThis.FormData;
+  globalThis.FormData = class { get(name) { return values[name] ?? null; } };
+  try { byClass(root, 'ifl-form').listeners.submit({ preventDefault() {} }); }
+  finally { globalThis.FormData = OriginalFormData; }
+}
+const compareBox = root => byClass(root, 'ifl-compare');
+const compareRows = root => compareBox(root).find(e => e.tagName === 'TBODY')[0].children
+  .map(row => [row.children[0].text(), row.children[1].text(), row.children[2].text(), row.children[2].className]);
+const ACK_LOST = { ...FREE_FORM_DEFAULTS, duplicate: 'on' };
+
+test('the first Free-form run shows no comparison', () => {
+  const root = mount(undefined, 'free');
+  submitValues(root, ACK_LOST);
+  assert.equal(compareBox(root).hidden, true);
+  assert.equal(compareBox(root).children.length, 0);
+});
+
+test('turning on idempotency compares one changed setting and the changed outcome with the previous run', () => {
+  const root = mount(undefined, 'free');
+  submitValues(root, ACK_LOST);
+  submitValues(root, { ...ACK_LOST, idempotency: 'on' });
+  const box = compareBox(root);
+  assert.equal(box.hidden, false);
+  assert.equal(box.tagName, 'SECTION');
+  assert.equal(box.getAttribute('aria-label'), 'Compared with your previous run');
+  assert.equal(headings(box)[0].tagName, 'H4');
+  assert.equal(headings(box)[0].text(), 'Compared with your previous run');
+  assert.deepEqual(box.find(e => e.tagName === 'LI').map(li => li.text()), ['Idempotent consumer (dedupe on eventId): off → on']);
+  const before = run(formScenario(name => ACK_LOST[name] ?? null));
+  const after = run(formScenario(name => ({ ...ACK_LOST, idempotency: 'on' })[name] ?? null));
+  assert.notEqual(before.verdict.summary, after.verdict.summary);
+  assert.deepEqual(box.find(e => e.tagName === 'THEAD')[0].find(e => e.tagName === 'TH').map(th => th.text()), ['Claim C-1001', 'Previous', 'This run']);
+  assert.deepEqual(compareRows(root), [
+    ['Verdict', before.verdict.summary, after.verdict.summary, 'ifl-diff'],
+    ['Status', 'Paid', 'Paid', ''],
+    ['Paid', '$240.00', '$120.00', 'ifl-diff'],
+    ['Events applied', 'E1 → E2 → E3 → E3', 'E1 → E2 → E3', 'ifl-diff'],
+  ]);
+  const output = byClass(root, 'ifl-output').children.map(c => c.className);
+  assert.ok(output.indexOf('ifl-compare') === output.findIndex(c => c.startsWith('ifl-verdict')) + 1, 'the comparison follows the verdict');
+});
+
+test('the comparison heading follows the heading level and every value is text', () => {
+  const root = mount({ headingLevel: 6 }, 'free');
+  submitValues(root, FREE_FORM_DEFAULTS);
+  submitValues(root, { ...FREE_FORM_DEFAULTS, timeout: 'on', timeoutAttempts: 'all', retryLimit: '1', backoff: 'fixed', deadLetter: null });
+  assert.equal(headings(compareBox(root))[0].tagName, 'H6');
+  assert.deepEqual(compareBox(root).find(e => e.tagName === 'LI').map(li => li.text()), [
+    'Downstream times out on: off → ClaimPaid, every attempt', 'Retries: 3 → 1', 'Backoff: exponential → fixed', 'Dead-letter queue: on → off',
+  ]);
+  for (const cell of compareBox(root).find(e => e.tagName === 'TD' || e.tagName === 'LI')) {
+    assert.ok(cell.children.every(c => typeof c === 'string'), 'values are text nodes, never markup');
+  }
+});
+
+test('an unchecked failure ignores its event select when comparing settings', () => {
+  const root = mount(undefined, 'free');
+  submitValues(root, FREE_FORM_DEFAULTS);
+  submitValues(root, { ...FREE_FORM_DEFAULTS, duplicateEvent: 'ClaimAccepted', timeoutAttempts: 'all' });
+  assert.equal(compareBox(root).find(e => e.tagName === 'P')[0].text(), 'Same settings as your previous run.');
+});
+
+test('identical settings say so and show identical columns', () => {
+  const root = mount(undefined, 'free');
+  submitValues(root, ACK_LOST);
+  submitValues(root, ACK_LOST);
+  const box = compareBox(root);
+  assert.equal(box.find(e => e.tagName === 'UL').length, 0);
+  assert.equal(box.find(e => e.tagName === 'P')[0].text(), 'Same settings as your previous run.');
+  for (const [, was, now, cls] of compareRows(root)) {
+    assert.equal(was, now);
+    assert.equal(cls, '');
+  }
+});
+
+test('the comparison appears only after animated playback, and an interrupted run does not become the previous run', () => animated(drain => {
+  const root = mount(undefined, 'free');
+  submitValues(root, ACK_LOST);
+  assert.equal(compareBox(root).hidden, true);
+  drain();
+  submitValues(root, { ...ACK_LOST, idempotency: 'on' });
+  assert.equal(compareBox(root).hidden, true, 'hidden while the trace plays');
+  assert.equal(compareBox(root).children.length, 0);
+  submitValues(root, { ...ACK_LOST, ordering: 'on' });
+  assert.equal(compareBox(root).hidden, true);
+  drain();
+  assert.equal(compareBox(root).hidden, false);
+  assert.deepEqual(compareBox(root).find(e => e.tagName === 'LI').map(li => li.text()), ['Ordered consumer (buffer early events): off → on']);
+}));
+
+test('a mode switch clears the previous Free-form run', () => animated(drain => {
+  const root = mount(undefined, 'free');
+  submitValues(root, ACK_LOST);
+  drain();
+  root.find(e => e.tagName === 'BUTTON' && e.text() === 'Switch to guided')[0].listeners.click();
+  root.find(e => e.tagName === 'BUTTON' && e.text() === 'Switch to free-form')[0].listeners.click();
+  submitValues(root, { ...ACK_LOST, idempotency: 'on' });
+  drain();
+  assert.equal(compareBox(root).hidden, true);
+  submitValues(root, { ...ACK_LOST, idempotency: 'on' });
+  drain();
+  assert.equal(compareBox(root).hidden, false);
+}));
+
+test('guided runs never show a comparison', () => {
+  const root = mount(undefined, 'guided');
+  clickRun(root);
+  clickRun(root);
+  assert.equal(compareBox(root).hidden, true);
 });
