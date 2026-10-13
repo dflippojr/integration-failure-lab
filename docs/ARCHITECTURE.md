@@ -55,10 +55,12 @@ Let a visitor see why integration reliability is hard and what the standard fixe
 
 A picker on first visit offers **Guided** (one scenario at a time, with expected vs. observed and a verdict) or **Free-form** (the full control panel). The choice is remembered per browser in `localStorage` (key `ifl-mode`) and can be switched at any time. A separate toggle replays either the simulated run or the recorded Java run (`ifl-source`). Both are in `ui/lab.js`.
 
+From Guided, **Try this in Free-form** opens the current scenario in Free-form with its failures and effective safeguards (`{ ...DEFAULT_SAFEGUARDS, ...scenario.safeguards }`) filled in, so a visitor can change one thing and run it again. It saves `ifl-mode=free` like the mode switch, does not run, and focuses the first control. `toFormValues(scenario)` decides from the scenario data whether the form can express it: poison messages, replay after fix and delays other than 500 ms have no Free-form control, so 6a and 6b do not offer it. Reaching Free-form any other way shows the defaults.
+
 ## Tests
 
 - `test/engine.test.js`: all twelve scenarios against their `expect` blocks, determinism, and targeted trace assertions.
-- `test/ui.test.js`: accessibility structure of the UI (heading levels, labels, focusable trace region), final queue snapshots, and deferred loading of recordings.
+- `test/ui.test.js`: accessibility structure of the UI (heading levels, labels, focusable trace region), final queue snapshots, deferred loading of recordings, and the Guided-to-Free-form pre-fill (every expressible scenario reproduces its guided run).
 - `test/dist.test.js`: `dist/` matches `npm run build` output, every scenario has exactly one recording, and the initial static import graph excludes recordings and stays under the byte baseline.
 - `test/build.test.js`: `scripts/build.mjs` accepts only its fixed target names.
 - `java/src/test/java/dev/dflippojr/lab/ScenarioRunnerTest.java`: runs all twelve scenarios over real HTTP against the same expectations and checks that independent deliveries proceed during a timeout.

@@ -123,3 +123,30 @@ test('J4 free-form duplicate, dedupe, timeout, validation and reload defaults', 
   await expect(page.getByLabel('Validate the payload schema', { exact: true })).not.toBeChecked();
   await expect(page.locator('.ifl-output')).toBeHidden();
 });
+
+test('J6 guided scenario opens pre-filled in free-form, reruns with a safeguard, and the mode switch restores defaults', async ({ page }) => {
+  await guided(page);
+  await page.getByRole('button', { name: /^6a:/ }).click();
+  await expect(page.getByRole('button', { name: 'Try this in Free-form', exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: /^2a:/ }).click();
+  await page.getByRole('button', { name: 'Try this in Free-form', exact: true }).click();
+  await expect(page.locator('.ifl-form')).toBeVisible();
+  await expect(page.getByLabel('Downstream times out on', { exact: true })).toBeFocused();
+  await expect(page.locator('.ifl-output')).toBeHidden();
+  expect(await page.evaluate(() => localStorage.getItem('ifl-mode'))).toBe('free');
+  await expect(page.getByLabel('Ack lost for', { exact: true })).toBeChecked();
+  await expect(page.getByLabel('Event whose ack is lost', { exact: true })).toHaveValue('ClaimPaid');
+  await expect(page.getByLabel('Idempotent consumer (dedupe on eventId)', { exact: true })).not.toBeChecked();
+  const paid = page.locator('.ifl-record tbody tr').nth(1).locator('td').last();
+  const runButton = page.getByRole('button', { name: 'Run', exact: true });
+  await runButton.click(); await completed(page); await expect(paid).toHaveText('$240.00');
+  await page.getByLabel('Idempotent consumer (dedupe on eventId)', { exact: true }).check();
+  await runButton.click(); await expect(paid).toHaveText('$120.00');
+  await page.getByRole('button', { name: 'Switch to guided', exact: true }).click();
+  await page.getByRole('button', { name: 'Switch to free-form', exact: true }).click();
+  await expect(page.getByLabel('Ack lost for', { exact: true })).not.toBeChecked();
+  await expect(page.getByLabel('Idempotent consumer (dedupe on eventId)', { exact: true })).not.toBeChecked();
+  await expect(page.getByLabel('Dead-letter queue', { exact: true })).toBeChecked();
+  await expect(page.locator('select[name=retryLimit]')).toHaveValue('3');
+  await expect(page.locator('select[name=backoff]')).toHaveValue('exponential');
+});

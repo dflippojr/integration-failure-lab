@@ -43,6 +43,7 @@
 .ifl-seg[aria-pressed="true"] { background: var(--ifl-green); border-color: var(--ifl-green); color: var(--ifl-paper); }
 .ifl-actions { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-top: 18px; }
 .ifl-actions .button { margin-top: 0; }
+.ifl-try { margin-right: auto; } /* sits beside Run; Previous/Next stay at the far end */
 .ifl-nav { display: flex; gap: 18px; }
 
 .ifl-form fieldset { border: 0; margin: 0 0 16px; padding: 0; min-width: 0; }

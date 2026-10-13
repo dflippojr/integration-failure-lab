@@ -23,14 +23,14 @@ class FakeElement {
   addEventListener(type, fn) { this.listeners[type] = fn; }
   append(...nodes) { this.children.push(...nodes); }
   replaceChildren(...nodes) { this.children = nodes; }
-  focus() {}
+  focus() { globalThis.__focused = this; }
   all() { return this.children.flatMap(c => (c instanceof FakeElement ? [c, ...c.all()] : [])); }
   querySelector(sel) { return this.all().find(e => sel.split(',').some(s => (s.trim().startsWith('.') ? e.className.split(' ').includes(s.trim().slice(1)) : e.tagName === s.trim().toUpperCase()))) ?? null; }
   find(pred) { return this.all().filter(pred); }
   text() { return this.children.map(c => (c instanceof FakeElement ? c.text() : String(c))).join(''); }
 }
 
-let mountLab, SCENARIOS, EXECUTED, RECORDING_IDS, describe;
+let mountLab, SCENARIOS, EXECUTED, RECORDING_IDS, describe, toFormValues, formScenario;
 import { run, judge } from '../engine/engine.js';
 before(async () => {
   globalThis.Node = FakeElement;
@@ -39,7 +39,7 @@ before(async () => {
   execFileSync(process.execPath, [fileURLToPath(new URL('../scripts/build.mjs', import.meta.url)), 'test']);
   // Import the source ui/lab.js, not a built copy, so coverage lands on it; see lab-loader.mjs.
   register('./lab-loader.mjs', import.meta.url);
-  ({ mountLab, describe } = await import('../ui/lab.js'));
+  ({ mountLab, describe, toFormValues, formScenario } = await import('../ui/lab.js'));
   ({ SCENARIOS, RECORDING_IDS } = await import('../dist-test/scenarios.js'));
   ({ EXECUTED } = await import('../dist-test/executed.js'));
   globalThis.__loadRecordings = () => EXECUTED;
@@ -502,4 +502,113 @@ test('an advertised recording missing from the loaded module fails explicitly', 
   assert.match(replayStatus(root).text(), /Recorded replay unavailable/);
   assert.equal(byClass(root, 'ifl-output').hidden, true);
   assert.equal(runButton(root).getAttribute('disabled'), null);
+});
+
+// Read the rendered form the way a browser would submit it: checked boxes send "on", a select sends its selected option.
+function submitted(form) {
+  const values = {};
+  for (const el of form.all()) {
+    const name = el.getAttribute('name');
+    if (el.tagName === 'INPUT' && el.getAttribute('checked') !== null) values[name] = 'on';
+    if (el.tagName === 'SELECT') {
+      const options = el.children;
+      values[name] = (options.find(o => o.getAttribute('selected') !== null) ?? options[0]).getAttribute('value');
+    }
+  }
+  return values;
+}
+function submitForm(root) {
+  const values = submitted(byClass(root, 'ifl-form'));
+  const OriginalFormData = globalThis.FormData;
+  globalThis.FormData = class { get(name) { return values[name] ?? null; } };
+  try { byClass(root, 'ifl-form').listeners.submit({ preventDefault() {} }); }
+  finally { globalThis.FormData = OriginalFormData; }
+}
+const tryButton = root => root.find(e => e.className === 'ifl-link ifl-try')[0];
+const FREE_FORM_DEFAULTS = { timeoutEvent: 'ClaimPaid', timeoutAttempts: 'first', duplicateEvent: 'ClaimPaid', reorderEvent: 'ClaimAccepted', retryLimit: '3', backoff: 'exponential', deadLetter: 'on' };
+
+test('Try this in Free-form shows for exactly the scenarios the form can express', () => {
+  const shown = [];
+  for (const scenario of SCENARIOS) {
+    const root = mount(undefined, 'guided');
+    chooseScenario(root, scenario.id.split('-')[0]);
+    const button = tryButton(root);
+    assert.equal(Boolean(button), toFormValues(scenario) !== null, scenario.id);
+    if (button) {
+      shown.push(scenario.id.split('-')[0]);
+      assert.equal(button.tagName, 'BUTTON');
+      assert.equal(button.text(), 'Try this in Free-form');
+      assert.equal(button.getAttribute('type'), 'button');
+      assert.ok(byClass(root, 'ifl-actions').children.includes(button), 'the control sits in the scenario actions');
+    }
+  }
+  assert.deepEqual(shown, ['1a', '1b', '1c', '2a', '2b', '3a', '3b', '4', '5a', '5b']);
+});
+
+test('scenarios with poison, replay after fix or another delay are not expressible', () => {
+  const base = SCENARIOS.find(s => s.id.startsWith('3a-'));
+  assert.notEqual(toFormValues(base), null);
+  assert.equal(toFormValues({ ...base, failures: { ...base.failures, poison: { event: 'ClaimPaid' } } }), null);
+  assert.equal(toFormValues({ ...base, safeguards: { ...base.safeguards, replayAfterFix: true } }), null);
+  assert.equal(toFormValues({ ...base, failures: { reorder: { event: 'ClaimAccepted', delayMs: 200 } } }), null);
+  assert.equal(toFormValues({ failures: { timeout: { event: 'ClaimPaid', attempts: [2] } } }), null);
+  assert.equal(toFormValues({ failures: { schemaChange: { event: 'ClaimAccepted' } } }), null);
+  assert.equal(toFormValues({ failures: {}, safeguards: { retryLimit: 6 } }), null);
+});
+
+const PICK = ['trace', 'record', 'dlq', 'dropped', 'buffered'];
+const pick = result => Object.fromEntries(PICK.map(k => [k, result[k]]));
+
+test('every pre-filled Free-form run reproduces its guided simulation', () => {
+  for (const scenario of SCENARIOS.filter(s => toFormValues(s))) {
+    const root = mount(undefined, 'guided');
+    chooseScenario(root, scenario.id.split('-')[0]);
+    tryButton(root).listeners.click();
+    const values = submitted(byClass(root, 'ifl-form'));
+    const expected = run(scenario);
+    assert.deepEqual(pick(run(formScenario(name => values[name] ?? null))), pick(expected));
+    submitForm(root);
+    const rows = byClass(root, 'ifl-trace').children;
+    assert.deepEqual(rows.map(row => row.children[2].text()), expected.trace.map(row => describe(row)));
+    assertFinal(root, expected);
+  }
+});
+
+test('Try this in Free-form saves free mode, fills the form, does not run and focuses the first control', () => animated((drain, timers) => {
+  const saved = {};
+  const originalStorage = globalThis.localStorage;
+  globalThis.localStorage = { getItem: () => null, setItem: (k, v) => { saved[k] = v; } };
+  try {
+    const root = mount(undefined, 'guided');
+    chooseScenario(root, '2b');
+    tryButton(root).listeners.click();
+    assert.equal(saved['ifl-mode'], 'free');
+    assert.equal(byClass(root, 'ifl-output').hidden, true);
+    assert.equal(byClass(root, 'ifl-output').children.length, 0);
+    assert.equal(timers.size, 0, 'no playback starts');
+    const form = byClass(root, 'ifl-form');
+    assert.ok(form);
+    const first = form.find(e => ['BUTTON', 'INPUT', 'SELECT'].includes(e.tagName))[0];
+    assert.equal(globalThis.__focused, first);
+    assert.deepEqual(submitted(form), { ...FREE_FORM_DEFAULTS, duplicate: 'on', idempotency: 'on' });
+  } finally { globalThis.localStorage = originalStorage; }
+}));
+
+test('1c pre-fill merges the default safeguards it leaves out', () => {
+  const root = mount(undefined, 'guided');
+  chooseScenario(root, '1c');
+  tryButton(root).listeners.click();
+  const { deadLetter, ...rest } = FREE_FORM_DEFAULTS;
+  assert.deepEqual(submitted(byClass(root, 'ifl-form')), { ...rest, timeout: 'on', timeoutAttempts: 'all', retryLimit: '0' });
+});
+
+test('reaching Free-form through the mode switch after a pre-fill shows the defaults', () => {
+  const root = mount(undefined, 'guided');
+  chooseScenario(root, '4');
+  tryButton(root).listeners.click();
+  assert.notDeepEqual(submitted(byClass(root, 'ifl-form')), FREE_FORM_DEFAULTS);
+  root.find(e => e.tagName === 'BUTTON' && e.text() === 'Switch to guided')[0].listeners.click();
+  root.find(e => e.tagName === 'BUTTON' && e.text() === 'Switch to free-form')[0].listeners.click();
+  assert.deepEqual(submitted(byClass(root, 'ifl-form')), FREE_FORM_DEFAULTS);
+  assert.deepEqual(submitted(byClass(mount(undefined, 'free'), 'ifl-form')), FREE_FORM_DEFAULTS);
 });
