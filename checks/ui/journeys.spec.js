@@ -102,11 +102,18 @@ test('J4 free-form duplicate, dedupe, timeout, validation and reload defaults', 
   await page.getByRole('button', { name: /^Free-form Pick/ }).click();
   const runButton = page.getByRole('button', { name: 'Run', exact: true });
   const paid = page.locator('.ifl-record tbody tr').nth(1).locator('td').last();
+  const compared = page.getByRole('region', { name: 'Compared with your previous run', exact: true });
   await runButton.click(); await completed(page); await expect(paid).toHaveText('$120.00');
+  await expect(compared).toHaveCount(0);
   await page.getByLabel('Ack lost for', { exact: true }).check();
   await runButton.click(); await expect(paid).toHaveText('$240.00');
+  await expect(compared.getByRole('listitem')).toHaveText(['Ack lost for: off → ClaimPaid']);
   await page.getByLabel('Idempotent consumer (dedupe on eventId)', { exact: true }).check();
   await runButton.click(); await expect(paid).toHaveText('$120.00');
+  await expect(compared.getByRole('listitem')).toHaveText(['Idempotent consumer (dedupe on eventId): off → on']);
+  await expect(compared.locator('tbody tr').nth(2).locator('td')).toHaveText(['$240.00', '$120.00']);
+  await runButton.click(); await completed(page);
+  await expect(compared).toContainText('Same settings as your previous run.');
   await page.getByLabel('Ack lost for', { exact: true }).uncheck();
   await page.getByLabel('Downstream times out on', { exact: true }).check();
   await page.getByLabel('Which attempts time out', { exact: true }).selectOption('all');

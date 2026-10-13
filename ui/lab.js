@@ -18,6 +18,13 @@ const SOURCE_KEY = 'ifl-source';
 const EVENT_TYPES = ['ClaimSubmitted', 'ClaimAccepted', 'ClaimPaid'];
 const dollars = cents => `$${(cents / 100).toFixed(2)}`;
 const TIMEOUT_ATTEMPTS = { first: [1], two: [1, 2], all: 'all' };
+const ATTEMPT_TEXT = { first: 'the first attempt', two: 'the first two attempts', all: 'every attempt' };
+// Free-form controls in form order, with the label the form shows; the run comparison reuses the wording.
+const FREE_LABELS = {
+  timeout: 'Downstream times out on', duplicate: 'Ack lost for', reorder: 'Delay', schemaChange: 'Producer renames paidAmount on ClaimPaid',
+  retryLimit: 'Retries', backoff: 'Backoff', deadLetter: 'Dead-letter queue', idempotency: 'Idempotent consumer (dedupe on eventId)',
+  ordering: 'Ordered consumer (buffer early events)', schemaValidation: 'Validate the payload schema',
+};
 const RETRY_LIMITS = [0, 1, 2, 3, 4, 5];
 const BACKOFFS = ['exponential', 'fixed', 'none'];
 const secs = ms => (ms >= 1000 ? `${(ms / 1000).toFixed(ms % 1000 ? 2 : 0)} s` : `${ms} ms`);
@@ -82,6 +89,17 @@ export function formScenario(get) {
   } };
 }
 
+// One Free-form setting as the visitor would read it off the form, for the run comparison.
+function settingText(v, name) {
+  switch (name) {
+    case 'timeout': return v.timeout ? `${v.timeoutEvent}, ${ATTEMPT_TEXT[v.timeoutAttempts]}` : 'off';
+    case 'duplicate': return v.duplicate ? v.duplicateEvent : 'off';
+    case 'reorder': return v.reorder ? `${v.reorderEvent} by 500 ms` : 'off';
+    case 'retryLimit': case 'backoff': return String(v[name]);
+    default: return v[name] ? 'on' : 'off';
+  }
+}
+
 export function describe(row, timeoutMs = TIMING.timeoutMs) {
   const e = row.eventType;
   switch (row.kind) {
@@ -135,7 +153,8 @@ export function mountLab(root, { headingLevel = 3 } = {}) {
   const level = Math.min(6, Math.max(2, Math.trunc(Number(headingLevel)) || 3));
   root.classList.add('ifl');
   root.replaceChildren();
-  const state = { mode: readPref(MODE_KEY), source: readPref(SOURCE_KEY) === 'exec' ? 'exec' : 'sim', index: 0, playing: null, pending: null };
+  // lastFree holds the last completed Free-form run ({ values, result }) until the mode changes.
+  const state = { mode: readPref(MODE_KEY), source: readPref(SOURCE_KEY) === 'exec' ? 'exec' : 'sim', index: 0, playing: null, pending: null, lastFree: null };
 
   const header = h('div', { class: 'ifl-bar' });
   const body = h('div', { class: 'ifl-body' });
@@ -262,35 +281,38 @@ export function mountLab(root, { headingLevel = 3 } = {}) {
     header.replaceChildren(h('p', { class: 'ifl-kicker' }, 'Free-form'), modeSwitch());
     const eventSelect = (name, selected, label) => h('select', { name, 'aria-label': label },
       EVENT_TYPES.map(t => h('option', { value: t, selected: t === selected }, t)));
-    const check = (name, label) => h('label', { class: 'ifl-check' },
-      h('input', { type: 'checkbox', name, checked: v[name] }), h('span', {}, label));
+    const check = name => h('label', { class: 'ifl-check' },
+      h('input', { type: 'checkbox', name, checked: v[name] }), h('span', {}, FREE_LABELS[name]));
 
-    const form = h('form', { class: 'ifl-form', onsubmit: ev => { ev.preventDefault(); const f = new FormData(form); play(run(formScenario(name => f.get(name))), null, SIM_NOTE); } },
+    const submit = ev => {
+      ev.preventDefault();
+      const f = new FormData(form);
+      const scenario = formScenario(name => f.get(name));
+      play(run(scenario), null, SIM_NOTE, toFormValues(scenario));
+    };
+    const form = h('form', { class: 'ifl-form', onsubmit: submit },
       h('fieldset', {}, h('legend', {}, 'Break something'),
-        h('div', { class: 'ifl-row' }, check('timeout', 'Downstream times out on'), eventSelect('timeoutEvent', v.timeoutEvent, 'Event that times out'),
+        h('div', { class: 'ifl-row' }, check('timeout'), eventSelect('timeoutEvent', v.timeoutEvent, 'Event that times out'),
           h('select', { name: 'timeoutAttempts', 'aria-label': 'Which attempts time out' },
-            [['first', 'the first attempt'], ['two', 'the first two attempts'], ['all', 'every attempt']]
-              .map(([value, text]) => h('option', { value, selected: value === v.timeoutAttempts }, text)))),
-        h('div', { class: 'ifl-row' }, check('duplicate', 'Ack lost for'), eventSelect('duplicateEvent', v.duplicateEvent, 'Event whose ack is lost')),
-        h('div', { class: 'ifl-row' }, check('reorder', 'Delay'), eventSelect('reorderEvent', v.reorderEvent, 'Event to delay'), h('span', {}, 'by 500 ms')),
-        h('div', { class: 'ifl-row' }, check('schemaChange', 'Producer renames paidAmount on ClaimPaid'))),
+            Object.entries(ATTEMPT_TEXT).map(([value, text]) => h('option', { value, selected: value === v.timeoutAttempts }, text)))),
+        h('div', { class: 'ifl-row' }, check('duplicate'), eventSelect('duplicateEvent', v.duplicateEvent, 'Event whose ack is lost')),
+        h('div', { class: 'ifl-row' }, check('reorder'), eventSelect('reorderEvent', v.reorderEvent, 'Event to delay'), h('span', {}, 'by 500 ms')),
+        h('div', { class: 'ifl-row' }, check('schemaChange'))),
       h('fieldset', {}, h('legend', {}, 'Protect it'),
         h('div', { class: 'ifl-row' },
-          h('label', { class: 'ifl-inline' }, 'Retries ',
+          h('label', { class: 'ifl-inline' }, `${FREE_LABELS.retryLimit} `,
             h('select', { name: 'retryLimit' }, RETRY_LIMITS.map(n => h('option', { value: n, selected: n === v.retryLimit }, n)))),
-          h('label', { class: 'ifl-inline' }, 'Backoff ',
+          h('label', { class: 'ifl-inline' }, `${FREE_LABELS.backoff} `,
             h('select', { name: 'backoff' }, BACKOFFS.map(b => h('option', { value: b, selected: b === v.backoff }, b))))),
-        check('deadLetter', 'Dead-letter queue'),
-        check('idempotency', 'Idempotent consumer (dedupe on eventId)'),
-        check('ordering', 'Ordered consumer (buffer early events)'),
-        check('schemaValidation', 'Validate the payload schema')),
+        check('deadLetter'), check('idempotency'), check('ordering'), check('schemaValidation')),
       h('div', { class: 'ifl-actions' }, h('button', { type: 'submit', class: 'button ifl-run' }, 'Run ', h('span', { 'aria-hidden': 'true' }, '→'))),
     );
     body.replaceChildren(form);
     output.hidden = true;
   }
 
-  function play(result, lesson, note) {
+  // settings (Free-form values) mark a Free-form run: once it finishes it is compared with, then replaces, state.lastFree.
+  function play(result, lesson, note, settings) {
     if (state.playing) clearInterval(state.playing);
     output.hidden = false;
     const list = h('ol', { class: 'ifl-trace' });
@@ -306,10 +328,11 @@ export function mountLab(root, { headingLevel = 3 } = {}) {
       h('span', {}, 'Timeouts ', counterEls.timeouts),
       h('span', {}, 'Parked / dropped events ', counterEls.parked));
     const verdictBox = h('div', { class: 'ifl-verdict', role: 'status' });
+    const compareBox = h('section', { class: 'ifl-compare', 'aria-label': 'Compared with your previous run', hidden: true });
     const finalState = h('div', { class: 'ifl-final-state', hidden: true });
     output.replaceChildren(
       h('p', { class: 'ifl-kicker' }, 'Trace'),
-      stats, scroller, verdictBox, finalState,
+      stats, scroller, verdictBox, compareBox, finalState,
       h('p', { class: 'ifl-note' }, note));
 
     const rows = result.trace;
@@ -328,6 +351,10 @@ export function mountLab(root, { headingLevel = 3 } = {}) {
     const finish = () => {
       state.playing = null;
       renderVerdict(verdictBox, result, lesson);
+      if (settings) {
+        if (state.lastFree) renderCompare(compareBox, state.lastFree, { values: settings, result });
+        state.lastFree = { values: settings, result };
+      }
       renderFinalState(finalState, result);
     };
 
@@ -339,6 +366,28 @@ export function mountLab(root, { headingLevel = 3 } = {}) {
       else { clearInterval(state.playing); finish(); }
     }, step);
     output.scrollIntoView?.({ block: 'nearest' });
+  }
+
+  function renderCompare(box, before, after) {
+    const changed = Object.entries(FREE_LABELS).map(([name, label]) => [label, settingText(before.values, name), settingText(after.values, name)])
+      .filter(([, was, now]) => was !== now);
+    const row = (label, value) => {
+      const was = value(before.result), now = value(after.result);
+      return h('tr', {}, h('th', {}, label), h('td', {}, was), h('td', { class: was === now ? '' : 'ifl-diff' }, now));
+    };
+    box.replaceChildren(
+      h(`h${Math.min(6, level + 1)}`, {}, 'Compared with your previous run'),
+      changed.length ? h('ul', {}, changed.map(([label, was, now]) => h('li', {}, `${label}: ${was} → ${now}`)))
+        : h('p', {}, 'Same settings as your previous run.'),
+      h('table', { class: 'ifl-record' },
+        h('thead', {}, h('tr', {}, h('th', {}, 'Claim C-1001'), h('th', {}, 'Previous'), h('th', {}, 'This run'))),
+        h('tbody', {},
+          row('Verdict', r => r.verdict.summary),
+          row('Status', r => r.record.status ?? '—'),
+          row('Paid', r => dollars(r.record.paidCents)),
+          row('Events applied', r => r.record.applied.join(' → ') || 'none'))),
+    );
+    box.hidden = false;
   }
 
   function renderFinalState(box, result) {
@@ -394,6 +443,7 @@ export function mountLab(root, { headingLevel = 3 } = {}) {
 
   function render(values) {
     state.pending = null;
+    state.lastFree = null;
     status.hidden = true;
     status.replaceChildren();
     output.replaceChildren();
