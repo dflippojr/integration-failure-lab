@@ -1,5 +1,7 @@
-// Browser UI for the integration failure lab. Mount with mountLab(element, { headingLevel }).
+// Browser UI for the integration failure lab. Mount with mountLab(element, { headingLevel, scenario }).
 // headingLevel (2-6, default 3) sets the scenario title's heading so it nests under the host page's outline.
+// scenario (a full ID such as '2a-duplicate' or its chip prefix '2a', any case) opens Guided on that scenario
+// without running it, moving focus or saving the mode; an unknown or non-string value is ignored.
 // Uses the pure engine; everything runs client-side on a virtual clock.
 import { run, judge, DEFAULT_SAFEGUARDS, EXPECTED_RECORD, TIMING } from './engine.js';
 import { SCENARIOS, RECORDING_IDS } from './scenarios.js';
@@ -149,12 +151,15 @@ function guardTags(g) {
   ].filter(Boolean);
 }
 
-export function mountLab(root, { headingLevel = 3 } = {}) {
+export function mountLab(root, { headingLevel = 3, scenario } = {}) {
   const level = Math.min(6, Math.max(2, Math.trunc(Number(headingLevel)) || 3));
+  const wanted = typeof scenario === 'string' && scenario.toLowerCase();
+  const start = wanted ? SCENARIOS.findIndex(sc => [sc.id, sc.id.split('-')[0]].some(id => id.toLowerCase() === wanted)) : -1;
   root.classList.add('ifl');
   root.replaceChildren();
   // lastFree holds the last completed Free-form run ({ values, result }) until the mode changes.
-  const state = { mode: readPref(MODE_KEY), source: readPref(SOURCE_KEY) === 'exec' ? 'exec' : 'sim', index: 0, playing: null, pending: null, lastFree: null };
+  // A deep-linked scenario sets this mount's mode without saving it over the visitor's preference.
+  const state = { mode: start < 0 ? readPref(MODE_KEY) : 'guided', source: readPref(SOURCE_KEY) === 'exec' ? 'exec' : 'sim', index: Math.max(start, 0), playing: null, pending: null, lastFree: null };
 
   const header = h('div', { class: 'ifl-bar' });
   const body = h('div', { class: 'ifl-body' });
