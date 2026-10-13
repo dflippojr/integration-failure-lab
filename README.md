@@ -30,16 +30,16 @@ The website vendors the bundle into `public/lab/` (`node scripts/build.mjs site`
 
 Guided mode loads `executed.js` only when **Replay real run** is activated. Selecting Executed or restoring a saved `ifl-source=exec` preference does not fetch recordings. A small `RECORDING_IDS` manifest in generated `scenarios.js` comes from actual recording keys, so scenarios without recordings remain simulation-only. Pending loads share one import across mounts and disable repeated Run requests; changing mode, scenario, or source discards the old playback request. Successful imports stay cached. Loading and failures appear in the named **Replay status** region; failures offer **Retry replay**, and simulation remains usable.
 
-The initial static JS graph is now `lab.js ? engine.js, scenarios.js`; `executed.js` is dynamically imported on demand. Offline sizes measured with #51 and #58 applied (#61) on Windows with Node v24.18.0, unchanged recording fixtures, consistent CRLF line endings for all modules, and each module compressed separately using gzip level 9:
+The initial static JS graph is now `lab.js ? engine.js, scenarios.js`; `executed.js` is dynamically imported on demand. Generated `scenarios.js` carries only the six fields the browser reads (`id`, `title`, `summary`, `failures`, `safeguards`, `lesson`); the `expect` oracle and the `order` sort key stay in `scenarios/*.json`. Offline sizes measured with #51, #58 and #67 applied on Windows with Node v24.18.0, unchanged recording fixtures, consistent CRLF line endings for all modules, and each module compressed separately using gzip level 9:
 
 | Initial module | Raw bytes | gzip-9 bytes |
 | --- | ---: | ---: |
 | lab.js (including loader) | 21,336 | 6,862 |
 | engine.js | 10,413 | 3,442 |
-| scenarios.js (including manifest) | 8,389 | 1,814 |
-| **Total** | **40,138** | **12,118** |
+| scenarios.js (including manifest) | 4,770 | 1,570 |
+| **Total** | **36,519** | **11,874** |
 
-Against issue #26's `5b059c1` baseline (63,161 raw / 12,993 gzip-9), the net reduction is **23,023 raw / 875 gzip-9 bytes**, including loader, manifest, and the intervening final-state UI. Against the `9256893` base (64,450 raw / 13,323 gzip-9), the reduction is **24,312 raw / 1,205 gzip-9 bytes**. Deferred `executed.js` measures 26,627 raw / 1,853 gzip-9 bytes with this normalization. These are offline asset sizes, not production transfer or latency measurements.
+Against issue #26's `5b059c1` baseline (63,161 raw / 12,993 gzip-9), the net reduction is **26,642 raw / 1,119 gzip-9 bytes**, including loader, manifest, and the intervening final-state UI. Against the `9256893` base (64,450 raw / 13,323 gzip-9), the reduction is **27,931 raw / 1,449 gzip-9 bytes**. Deferred `executed.js` measures 26,627 raw / 1,853 gzip-9 bytes with this normalization. These are offline asset sizes, not production transfer or latency measurements.
 
 To reproduce these figures from the repository root (normalize generated LF and checked-out CRLF consistently):
 

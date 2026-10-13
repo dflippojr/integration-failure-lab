@@ -46,6 +46,16 @@ for (const file of GENERATED) {
   });
 }
 
+test('generated SCENARIOS carry only the browser fields, in order sequence', async () => {
+  const { SCENARIOS } = await import('../dist/scenarios.js');
+  const BROWSER_KEYS = ['id', 'title', 'summary', 'failures', 'safeguards', 'lesson'];
+  const bySequence = scenarios.map(({ data }) => data).sort((a, b) => a.order - b.order);
+  assert.deepEqual(SCENARIOS.map(scenario => Object.keys(scenario)), bySequence.map(() => BROWSER_KEYS));
+  for (const [i, { id, title, summary, failures, safeguards, lesson }] of bySequence.entries()) {
+    assert.deepEqual(SCENARIOS[i], { id, title, summary, failures, safeguards, lesson });
+  }
+});
+
 test('every scenario has exactly one matching recording, and none are orphaned', () => {
   const ids = scenarios.map(({ data }) => data.id);
   const recordedIds = recordings.map(({ data }) => data.scenarioId);
