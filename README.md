@@ -14,10 +14,11 @@ Try it on [dflippojr.dev](https://dflippojr.dev/#lab), where it's the site's pla
 ## Develop
 
 ```sh
+npm ci            # first: installs esbuild (the build minifies dist/) and Playwright
 npm test          # engine and UI tests
 cd java && ./mvnw verify   # executes all twelve scenarios over real HTTP (Java 21)
 java -jar target/integration-failure-lab-0.1.0-SNAPSHOT.jar --lab.export-dir=../executed   # from java/, after verify: re-record traces
-npm run build     # from the repo root: assemble dist/ (engine, UI, CSS, generated scenarios.js and executed.js)
+npm run build     # from the repo root: assemble minified dist/ (engine, UI, CSS, generated scenarios.js and executed.js)
 # the tests fail if dist/ or executed/ drift from their sources, so run npm run build and commit dist/ after changing them
 python -m http.server 4180 --directory dist   # open http://127.0.0.1:4180
 ```
@@ -30,24 +31,26 @@ The website vendors the bundle into `public/lab/` (`node scripts/build.mjs site`
 
 Guided mode loads `executed.js` only when **Replay real run** is activated. Selecting Executed or restoring a saved `ifl-source=exec` preference does not fetch recordings. A small `RECORDING_IDS` manifest in generated `scenarios.js` comes from actual recording keys, so scenarios without recordings remain simulation-only. Pending loads share one import across mounts and disable repeated Run requests; changing mode, scenario, or source discards the old playback request. Successful imports stay cached. Loading and failures appear in the named **Replay status** region; failures offer **Retry replay**, and simulation remains usable.
 
-The initial static JS graph is now `lab.js ? engine.js, scenarios.js`; `executed.js` is dynamically imported on demand. Generated `scenarios.js` carries only the six fields the browser reads (`id`, `title`, `summary`, `failures`, `safeguards`, `lesson`); the `expect` oracle and the `order` sort key stay in `scenarios/*.json`. Offline sizes measured with #51, #58 and #67 applied on Windows with Node v24.18.0, unchanged recording fixtures, consistent CRLF line endings for all modules, and each module compressed separately using gzip level 9:
+The build minifies each shipped file on its own with esbuild (pinned in `devDependencies`): no bundling, no source maps, and the same export names, so `executed.js` stays a separate lazy import. The readable sources are `engine/engine.js`, `ui/lab.js` and `ui/lab.css`. Output is byte-identical on Windows and Linux.
+
+The initial static JS graph is now `lab.js ? engine.js, scenarios.js`; `executed.js` is dynamically imported on demand. Generated `scenarios.js` carries only the six fields the browser reads (`id`, `title`, `summary`, `failures`, `safeguards`, `lesson`); the `expect` oracle and the `order` sort key stay in `scenarios/*.json`. Offline sizes measured with #51, #58, #67 and #66 (minification) applied on Windows with Node v24.18.0, unchanged recording fixtures, consistent CRLF line endings for all modules, and each module compressed separately using gzip level 9:
 
 | Initial module | Raw bytes | gzip-9 bytes |
 | --- | ---: | ---: |
-| lab.js (including loader) | 21,336 | 6,862 |
-| engine.js | 10,413 | 3,442 |
-| scenarios.js (including manifest) | 4,770 | 1,570 |
-| **Total** | **36,519** | **11,874** |
+| lab.js (including loader) | 13,970 | 5,426 |
+| engine.js | 5,766 | 2,416 |
+| scenarios.js (including manifest) | 4,358 | 1,478 |
+| **Total** | **24,094** | **9,320** |
 
-Against issue #26's `5b059c1` baseline (63,161 raw / 12,993 gzip-9), the net reduction is **26,642 raw / 1,119 gzip-9 bytes**, including loader, manifest, and the intervening final-state UI. Against the `9256893` base (64,450 raw / 13,323 gzip-9), the reduction is **27,931 raw / 1,449 gzip-9 bytes**. Deferred `executed.js` measures 26,627 raw / 1,853 gzip-9 bytes with this normalization. These are offline asset sizes, not production transfer or latency measurements.
+Against issue #26's `5b059c1` baseline (63,161 raw / 12,993 gzip-9), the net reduction is **39,067 raw / 3,673 gzip-9 bytes**, including loader, manifest, and the intervening final-state UI. Against the `9256893` base (64,450 raw / 13,323 gzip-9), the reduction is **40,356 raw / 4,003 gzip-9 bytes**. Minification alone saves 12,425 raw / 2,554 gzip-9 bytes against the unminified #67 graph (36,519 / 11,874). Deferred `executed.js` measures 23,496 raw / 1,726 gzip-9 bytes and `lab.css` 8,645 raw / 2,247 gzip-9 bytes with this normalization. These are offline asset sizes, not production transfer or latency measurements.
 
 To reproduce these figures from the repository root (normalize generated LF and checked-out CRLF consistently):
 
 ```sh
-node --input-type=module -e 'import {readFileSync} from "node:fs"; import {gzipSync} from "node:zlib"; for (const f of ["lab.js","engine.js","scenarios.js","executed.js"]) { const b=Buffer.from(readFileSync("dist/"+f,"utf8").replace(/\r?\n/g,"\r\n")); console.log(f,b.length,gzipSync(b,{level:9}).length); }'
+node --input-type=module -e 'import {readFileSync} from "node:fs"; import {gzipSync} from "node:zlib"; for (const f of ["lab.js","engine.js","scenarios.js","executed.js","lab.css"]) { const b=Buffer.from(readFileSync("dist/"+f,"utf8").replace(/\r?\n/g,"\r\n")); console.log(f,b.length,gzipSync(b,{level:9}).length); }'
 ```
 
-The drift tests also traverse the static imports, check that recordings are absent, and verify both normalized totals remain below the issue baseline.
+The drift tests also traverse the static imports, check that recordings are absent, and verify both normalized totals stay under the minified budget (24,500 raw / 9,500 gzip-9).
 
 All data is synthetic. No real payers, patients, or PHI.
 

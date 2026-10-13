@@ -2,7 +2,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -23,8 +23,11 @@ for (const recording of recordings) {
     recordingByScenarioId.set(recording.data.scenarioId, recording);
   }
 }
-// generatedAt is a recording timestamp, not content.
-const stripStamps = s => s.replace(/"generatedAt":\s*"[^"]*"/g, '"generatedAt":""');
+// generatedAt is a recording timestamp, not content. Minified output may drop the key quotes.
+const stripStamps = s => s.replace(/"?generatedAt"?:\s*"[^"]*"/g, 'generatedAt:""');
+// The build resolves esbuild from its own checkout, so private copies link this repo's node_modules.
+const linkModules = dir => symlinkSync(join(root, 'node_modules'), join(dir, 'node_modules'), 'junction');
+const recordingIds = generated => JSON.parse(generated.match(/\bRECORDING_IDS\s*=\s*(\[.*?\])/)[1]);
 
 let tmp;
 before(() => {
@@ -33,6 +36,7 @@ before(() => {
   mkdirSync(join(tmp, 'scripts'));
   cpSync(join(root, 'scripts', 'build.mjs'), join(tmp, 'scripts', 'build.mjs'));
   for (const d of ['engine', 'ui', 'scenarios', 'executed']) cpSync(join(root, d), join(tmp, d), { recursive: true });
+  linkModules(tmp);
   const run = spawnSync(process.execPath, [join(tmp, 'scripts', 'build.mjs'), 'dist'], { encoding: 'utf8' });
   assert.equal(run.status, 0, run.stderr);
 });
@@ -105,6 +109,7 @@ test('rebuilt dist rejects wrong-order, duplicate and missing applied events in 
     for (const dir of ['scripts', 'engine', 'ui', 'scenarios', 'executed', 'dist']) {
       cpSync(join(tmp, dir), join(fixture, dir), { recursive: true });
     }
+    linkModules(fixture);
     mkdirSync(join(fixture, 'test'));
     cpSync(join(root, 'test', 'dist.test.js'), join(fixture, 'test', 'dist.test.js'));
     cpSync(join(root, 'package.json'), join(fixture, 'package.json'));
@@ -136,7 +141,7 @@ test('rebuilt dist rejects wrong-order, duplicate and missing applied events in 
 
 test('recording manifest contains exactly the actual recording keys', () => {
   const generated = readFileSync(join(tmp, 'dist', 'scenarios.js'), 'utf8');
-  const ids = JSON.parse(generated.match(/export const RECORDING_IDS = (.*);/)[1]);
+  const ids = recordingIds(generated);
   const recordedIds = recordings.map(({ data }) => data.scenarioId);
   assert.deepEqual(ids.sort(), recordedIds.sort());
   assert.ok(!generated.includes('generatedAt'), 'manifest must not contain recording bodies');
@@ -150,24 +155,26 @@ test('manifest follows recording keys when a future scenario has no recording', 
   const built = spawnSync(process.execPath, [join(tmp, 'scripts', 'build.mjs'), 'dist'], { encoding: 'utf8' });
   assert.equal(built.status, 0, built.stderr);
   const generated = readFileSync(join(tmp, 'dist', 'scenarios.js'), 'utf8');
-  const ids = JSON.parse(generated.match(/export const RECORDING_IDS = (.*);/)[1]);
+  const ids = recordingIds(generated);
   assert.equal(ids.length, 11);
   assert.ok(!ids.includes(id));
   assert.ok(generated.includes(id), 'the unrecorded scenario remains available to simulate');
 });
 
-test('initial static UI graph excludes recordings and beats the issue byte baseline', () => {
+test('initial static UI graph excludes recordings and stays within the minified byte budget', () => {
   const modules = new Map();
   function visit(file) {
     if (modules.has(file)) return;
     const source = readFileSync(join(root, 'dist', file), 'utf8');
     // Compare Windows CRLF bytes for every module, including generated modules.
     modules.set(file, Buffer.from(source.replace(/\r?\n/g, '\r\n')));
-    for (const match of source.matchAll(/^import .* from ['"]\.\/(.+?)['"];$/gm)) visit(match[1]);
+    // Static imports only; minified modules put several statements on one line.
+    for (const match of source.matchAll(/(?:^|[;}\s])import\s*[{*\w][^;]*?from\s*['"]\.\/(.+?)['"]/gm)) visit(match[1]);
   }
   visit('lab.js');
   assert.deepEqual([...modules.keys()].sort(), ['engine.js', 'lab.js', 'scenarios.js']);
   const bytes = [...modules.values()];
-  assert.ok(bytes.reduce((sum, b) => sum + b.length, 0) < 63161);
-  assert.ok(bytes.reduce((sum, b) => sum + gzipSync(b, { level: 9 }).length, 0) < 12993);
+  // Issue #66 budget: minified totals measure 24,094 raw / 9,320 gzip-9 bytes.
+  assert.ok(bytes.reduce((sum, b) => sum + b.length, 0) < 24500);
+  assert.ok(bytes.reduce((sum, b) => sum + gzipSync(b, { level: 9 }).length, 0) < 9500);
 });
