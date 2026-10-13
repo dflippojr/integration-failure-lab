@@ -47,6 +47,9 @@ jobs:
         if: steps.token.outputs.available == 'true'
         with:
           node-version: 22
+      - name: Install Node dependencies
+        if: steps.token.outputs.available == 'true'
+        run: npm ci
       - name: Test engine and UI with coverage
         if: steps.token.outputs.available == 'true'
         run: >
