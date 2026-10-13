@@ -175,6 +175,7 @@ test('initial static UI graph excludes recordings and stays within the minified 
   assert.deepEqual([...modules.keys()].sort(), ['engine.js', 'lab.js', 'scenarios.js']);
   const bytes = [...modules.values()];
   // Issue #66 budget: minified totals measure 24,094 raw / 9,320 gzip-9 bytes.
-  assert.ok(bytes.reduce((sum, b) => sum + b.length, 0) < 24500);
-  assert.ok(bytes.reduce((sum, b) => sum + gzipSync(b, { level: 9 }).length, 0) < 9500);
+  // Issue #63 (Try this in Free-form) re-baselined it: 24,889 raw / 9,631 gzip-9 bytes.
+  assert.ok(bytes.reduce((sum, b) => sum + b.length, 0) < 25300);
+  assert.ok(bytes.reduce((sum, b) => sum + gzipSync(b, { level: 9 }).length, 0) < 9800);
 });

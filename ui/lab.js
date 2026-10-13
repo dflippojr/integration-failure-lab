@@ -17,6 +17,9 @@ const MODE_KEY = 'ifl-mode';
 const SOURCE_KEY = 'ifl-source';
 const EVENT_TYPES = ['ClaimSubmitted', 'ClaimAccepted', 'ClaimPaid'];
 const dollars = cents => `$${(cents / 100).toFixed(2)}`;
+const TIMEOUT_ATTEMPTS = { first: [1], two: [1, 2], all: 'all' };
+const RETRY_LIMITS = [0, 1, 2, 3, 4, 5];
+const BACKOFFS = ['exponential', 'fixed', 'none'];
 const secs = ms => (ms >= 1000 ? `${(ms / 1000).toFixed(ms % 1000 ? 2 : 0)} s` : `${ms} ms`);
 
 function readPref(key) {
@@ -49,6 +52,34 @@ function h(tag, attrs = {}, ...children) {
   }
   for (const c of children.flat()) if (c != null && c !== false) el.append(c instanceof Node ? c : String(c));
   return el;
+}
+
+// Free-form control values that reproduce a scenario, or null when a failure or safeguard has no Free-form control.
+export function toFormValues({ failures = {}, safeguards }) {
+  const { timeout, duplicate, reorder, schemaChange, ...otherFailures } = failures;
+  const { replayAfterFix, ...guards } = { ...DEFAULT_SAFEGUARDS, ...safeguards };
+  const attempts = timeout ? Object.keys(TIMEOUT_ATTEMPTS).find(k => `${TIMEOUT_ATTEMPTS[k]}` === `${timeout.attempts}`) : 'first';
+  if (Object.keys(otherFailures).length || replayAfterFix || !attempts || (reorder && reorder.delayMs !== 500)
+    || (schemaChange && schemaChange.event !== 'ClaimPaid') || !RETRY_LIMITS.includes(guards.retryLimit) || !BACKOFFS.includes(guards.backoff)) return null;
+  return {
+    ...guards, timeout: !!timeout, timeoutEvent: timeout?.event ?? 'ClaimPaid', timeoutAttempts: attempts,
+    duplicate: !!duplicate, duplicateEvent: duplicate?.event ?? 'ClaimPaid', reorder: !!reorder, reorderEvent: reorder?.event ?? 'ClaimAccepted', schemaChange: !!schemaChange,
+  };
+}
+const FREE_DEFAULTS = toFormValues({});
+
+// The scenario a submitted Free-form describes; get(name) reads a form field as FormData does.
+export function formScenario(get) {
+  const on = name => get(name) === 'on';
+  const failures = {};
+  if (on('timeout')) failures.timeout = { event: get('timeoutEvent'), attempts: TIMEOUT_ATTEMPTS[get('timeoutAttempts')] ?? [1] };
+  if (on('duplicate')) failures.duplicate = { event: get('duplicateEvent') };
+  if (on('reorder')) failures.reorder = { event: get('reorderEvent'), delayMs: 500 };
+  if (on('schemaChange')) failures.schemaChange = { event: 'ClaimPaid' };
+  return { failures, safeguards: {
+    retryLimit: Number(get('retryLimit')), backoff: get('backoff'), deadLetter: on('deadLetter'),
+    idempotency: on('idempotency'), ordering: on('ordering'), schemaValidation: on('schemaValidation'),
+  } };
 }
 
 export function describe(row, timeoutMs = TIMING.timeoutMs) {
@@ -114,10 +145,11 @@ export function mountLab(root, { headingLevel = 3 } = {}) {
   const frame = h('div', { class: 'ifl-console' }, header, body, status, output);
   root.append(frame);
 
-  function setMode(mode) {
+  // values pre-fills Free-form for this render only; every other way into Free-form shows FREE_DEFAULTS.
+  function setMode(mode, values) {
     state.mode = mode;
     savePref(MODE_KEY, mode);
-    render();
+    render(values);
     body.querySelector('button, input, select')?.focus();
   }
 
@@ -158,6 +190,7 @@ export function mountLab(root, { headingLevel = 3 } = {}) {
         'aria-label': `${sc.id.split('-')[0]}: ${sc.title}`, title: sc.title,
         onclick: () => { state.index = i; render(); refocus('.ifl-chip[aria-current]'); },
       }, sc.id.split('-')[0])));
+    const values = toFormValues(s);
     const step = (by, cls) => () => { state.index += by; render(); refocus(`.${cls}:not([disabled])`, '.ifl-chip[aria-current]'); };
     const prev = h('button', { type: 'button', class: 'ifl-link ifl-prev', disabled: state.index === 0, onclick: step(-1, 'ifl-prev') }, '← Previous');
     const next = h('button', { type: 'button', class: 'ifl-link ifl-next', disabled: state.index === SCENARIOS.length - 1, onclick: step(1, 'ifl-next') }, 'Next →');
@@ -173,6 +206,7 @@ export function mountLab(root, { headingLevel = 3 } = {}) {
       h('div', { class: 'ifl-actions' },
         h('button', { type: 'button', class: 'button ifl-run', onclick: () => runGuided(s) },
           state.source === 'exec' && RECORDING_IDS.includes(s.id) ? 'Replay real run ' : 'Run scenario ', h('span', { 'aria-hidden': 'true' }, '→')),
+        values && h('button', { type: 'button', class: 'ifl-link ifl-try', onclick: () => setMode('free', values) }, 'Try this in Free-form'),
         h('span', { class: 'ifl-nav' }, prev, next)),
     );
     output.hidden = true;
@@ -224,30 +258,29 @@ export function mountLab(root, { headingLevel = 3 } = {}) {
       option('exec', 'Executed: Java / Spring'));
   }
 
-  function renderFree() {
+  function renderFree(v = FREE_DEFAULTS) {
     header.replaceChildren(h('p', { class: 'ifl-kicker' }, 'Free-form'), modeSwitch());
     const eventSelect = (name, selected, label) => h('select', { name, 'aria-label': label },
       EVENT_TYPES.map(t => h('option', { value: t, selected: t === selected }, t)));
-    const check = (name, label, checked = false) => h('label', { class: 'ifl-check' },
-      h('input', { type: 'checkbox', name, checked }), h('span', {}, label));
+    const check = (name, label) => h('label', { class: 'ifl-check' },
+      h('input', { type: 'checkbox', name, checked: v[name] }), h('span', {}, label));
 
-    const form = h('form', { class: 'ifl-form', onsubmit: ev => { ev.preventDefault(); play(fromForm(form), null, SIM_NOTE); } },
+    const form = h('form', { class: 'ifl-form', onsubmit: ev => { ev.preventDefault(); const f = new FormData(form); play(run(formScenario(name => f.get(name))), null, SIM_NOTE); } },
       h('fieldset', {}, h('legend', {}, 'Break something'),
-        h('div', { class: 'ifl-row' }, check('timeout', 'Downstream times out on'), eventSelect('timeoutEvent', 'ClaimPaid', 'Event that times out'),
+        h('div', { class: 'ifl-row' }, check('timeout', 'Downstream times out on'), eventSelect('timeoutEvent', v.timeoutEvent, 'Event that times out'),
           h('select', { name: 'timeoutAttempts', 'aria-label': 'Which attempts time out' },
-            h('option', { value: 'first' }, 'the first attempt'),
-            h('option', { value: 'two' }, 'the first two attempts'),
-            h('option', { value: 'all' }, 'every attempt'))),
-        h('div', { class: 'ifl-row' }, check('duplicate', 'Ack lost for'), eventSelect('duplicateEvent', 'ClaimPaid', 'Event whose ack is lost')),
-        h('div', { class: 'ifl-row' }, check('reorder', 'Delay'), eventSelect('reorderEvent', 'ClaimAccepted', 'Event to delay'), h('span', {}, 'by 500 ms')),
+            [['first', 'the first attempt'], ['two', 'the first two attempts'], ['all', 'every attempt']]
+              .map(([value, text]) => h('option', { value, selected: value === v.timeoutAttempts }, text)))),
+        h('div', { class: 'ifl-row' }, check('duplicate', 'Ack lost for'), eventSelect('duplicateEvent', v.duplicateEvent, 'Event whose ack is lost')),
+        h('div', { class: 'ifl-row' }, check('reorder', 'Delay'), eventSelect('reorderEvent', v.reorderEvent, 'Event to delay'), h('span', {}, 'by 500 ms')),
         h('div', { class: 'ifl-row' }, check('schemaChange', 'Producer renames paidAmount on ClaimPaid'))),
       h('fieldset', {}, h('legend', {}, 'Protect it'),
         h('div', { class: 'ifl-row' },
           h('label', { class: 'ifl-inline' }, 'Retries ',
-            h('select', { name: 'retryLimit' }, [0, 1, 2, 3, 4, 5].map(n => h('option', { value: n, selected: n === 3 }, n)))),
+            h('select', { name: 'retryLimit' }, RETRY_LIMITS.map(n => h('option', { value: n, selected: n === v.retryLimit }, n)))),
           h('label', { class: 'ifl-inline' }, 'Backoff ',
-            h('select', { name: 'backoff' }, ['exponential', 'fixed', 'none'].map(b => h('option', { value: b }, b))))),
-        check('deadLetter', 'Dead-letter queue', true),
+            h('select', { name: 'backoff' }, BACKOFFS.map(b => h('option', { value: b, selected: b === v.backoff }, b))))),
+        check('deadLetter', 'Dead-letter queue'),
         check('idempotency', 'Idempotent consumer (dedupe on eventId)'),
         check('ordering', 'Ordered consumer (buffer early events)'),
         check('schemaValidation', 'Validate the payload schema')),
@@ -255,23 +288,6 @@ export function mountLab(root, { headingLevel = 3 } = {}) {
     );
     body.replaceChildren(form);
     output.hidden = true;
-  }
-
-  function fromForm(form) {
-    const f = new FormData(form);
-    const on = name => f.get(name) === 'on';
-    const failures = {};
-    if (on('timeout')) {
-      const a = f.get('timeoutAttempts');
-      failures.timeout = { event: f.get('timeoutEvent'), attempts: a === 'all' ? 'all' : a === 'two' ? [1, 2] : [1] };
-    }
-    if (on('duplicate')) failures.duplicate = { event: f.get('duplicateEvent') };
-    if (on('reorder')) failures.reorder = { event: f.get('reorderEvent'), delayMs: 500 };
-    if (on('schemaChange')) failures.schemaChange = { event: 'ClaimPaid' };
-    return run({ failures }, {
-      retryLimit: Number(f.get('retryLimit')), backoff: f.get('backoff'), deadLetter: on('deadLetter'),
-      idempotency: on('idempotency'), ordering: on('ordering'), schemaValidation: on('schemaValidation'),
-    });
   }
 
   function play(result, lesson, note) {
@@ -376,7 +392,7 @@ export function mountLab(root, { headingLevel = 3 } = {}) {
     return h('p', { class: 'ifl-lesson' }, h('strong', {}, 'Try: '), tips.join('; '), '.');
   }
 
-  function render() {
+  function render(values) {
     state.pending = null;
     status.hidden = true;
     status.replaceChildren();
@@ -386,7 +402,7 @@ export function mountLab(root, { headingLevel = 3 } = {}) {
     // The picker stays one column at any width; guided and free-form share the two-pane layout.
     frame.className = state.mode === 'guided' || state.mode === 'free' ? 'ifl-console ifl-panes' : 'ifl-console';
     if (state.mode === 'guided') renderGuided();
-    else if (state.mode === 'free') renderFree();
+    else if (state.mode === 'free') renderFree(values);
     else renderPicker();
   }
 
