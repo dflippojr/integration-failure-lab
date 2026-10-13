@@ -725,3 +725,64 @@ test('guided runs never show a comparison', () => {
   clickRun(root);
   assert.equal(compareBox(root).hidden, true);
 });
+
+// Mounts with the given saved preferences and options, without calling setMode, and records what gets saved.
+async function mountWith(prefs, opts) {
+  let imports = 0;
+  const mountFresh = await freshLab(() => { imports++; return EXECUTED; });
+  const saved = {};
+  const originalStorage = globalThis.localStorage;
+  globalThis.localStorage = { getItem: key => prefs[key] ?? null, setItem: (k, v) => { saved[k] = v; } };
+  try {
+    const root = new FakeElement('div');
+    globalThis.__focused = null;
+    const lab = mountFresh(root, opts);
+    return { root, lab, saved, imports: () => imports };
+  } finally { globalThis.localStorage = originalStorage; }
+}
+const currentChip = root => root.find(e => e.className === 'ifl-chip' && e.getAttribute('aria-current') === 'step').map(e => e.text());
+const kicker = root => byClass(root, 'ifl-kicker').text();
+
+test('scenario option opens Guided on a full or short ID, any case, without saving the mode', () => animated(async (drain, timers) => {
+  for (const scenario of ['2a', '2A-DUPLICATE']) {
+    const { root, saved, imports } = await mountWith({}, { scenario });
+    assert.deepEqual(currentChip(root), ['2a']);
+    assert.equal(kicker(root), `Guided · scenario 4 of ${SCENARIOS.length}`);
+    assert.equal(headings(root)[0].text(), 'Lost acknowledgement');
+    assert.equal(headings(root)[0].tagName, 'H3');
+    assert.deepEqual(saved, {}, 'a deep link does not write ifl-mode');
+    assert.equal(byClass(root, 'ifl-output').hidden, true);
+    assert.equal(timers.size, 0, 'no playback starts');
+    assert.equal(imports(), 0, 'no recordings load on mount');
+    assert.equal(globalThis.__focused, null, 'focus stays with the host');
+  }
+}));
+
+test('scenario option overrides a saved free mode; switching mode afterwards saves it', async () => {
+  const { root, lab, saved } = await mountWith({ 'ifl-mode': 'free' }, { scenario: '3b' });
+  assert.deepEqual(currentChip(root), ['3b']);
+  assert.deepEqual(saved, {});
+  const originalStorage = globalThis.localStorage;
+  globalThis.localStorage = { getItem: () => null, setItem: (k, v) => { saved[k] = v; } };
+  try { lab.setMode('free'); } finally { globalThis.localStorage = originalStorage; }
+  assert.equal(saved['ifl-mode'], 'free');
+  assert.ok(byClass(root, 'ifl-form'));
+});
+
+test('scenario option keeps the saved run source', async () => {
+  const exec = await mountWith({ 'ifl-source': 'exec' }, { scenario: '6b' });
+  assert.match(runButton(exec.root).text(), /^Replay real run/);
+  assert.equal(exec.imports(), 0);
+  const sim = await mountWith({}, { scenario: '1a' });
+  assert.match(runButton(sim.root).text(), /^Run scenario/);
+});
+
+test('an unknown, empty or non-string scenario option behaves like no option', async () => {
+  for (const scenario of ['zz', '', 7, null, {}]) {
+    const fresh = await mountWith({}, { scenario });
+    assert.ok(byClass(fresh.root, 'ifl-picker'), `picker on first visit for ${JSON.stringify(scenario)}`);
+    const back = await mountWith({ 'ifl-mode': 'guided' }, { scenario });
+    assert.deepEqual(currentChip(back.root), ['1a']);
+    assert.deepEqual({ ...fresh.saved, ...back.saved }, {});
+  }
+});
