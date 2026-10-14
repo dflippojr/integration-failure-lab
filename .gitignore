@@ -9,3 +9,8 @@ output/
 playwright-report/
 test-results/
 .playwright-cli/
+
+# Demo clip: generated captures, vendored GSAP and HyperFrames working files (demo/out/ is committed)
+demo/scenes/captures/
+demo/scenes/vendor/
+demo/scenes/.hyperframes/

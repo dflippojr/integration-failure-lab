@@ -1,0 +1,178 @@
+<!doctype html>
+<!--
+  The lab's 45-second demo clip as a HyperFrames composition. Scenes frame real screens that demo/capture.mjs
+  takes from the current UI (captures/*.png and the part boxes in captures/captures.js, both generated);
+  this file only adds the camera moves, highlights and captions. Render with npm run demo:render.
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <script src="vendor/gsap.min.js"></script>
+    <script src="captures/captures.js"></script>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 1920px; height: 1080px; overflow: hidden; background: #f6f3eb; }
+      #root { position: relative; width: 1920px; height: 1080px; overflow: hidden; color: #1d2a22; font-family: Inter, 'Segoe UI', system-ui, sans-serif; }
+      .clip { position: absolute; inset: 0; }
+      .scene { overflow: hidden; background: #f6f3eb; }
+      /* The camera holds one screen at capture resolution; GSAP moves and scales it. */
+      .cam { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+      .cam img { display: block; width: 100%; height: 100%; }
+      .ring { position: absolute; border: 5px solid #c9472f; border-radius: 12px; opacity: 0; box-shadow: 0 0 0 9999px rgba(29, 42, 34, 0); }
+      .ring.good { border-color: #2f7d4f; }
+      .cover { position: absolute; }
+      /* Captions are burned in on a bar under the screen. */
+      .bar { top: auto; height: 200px; background: #1f3a2c; }
+      .cap { top: auto; height: 200px; background: #1f3a2c; display: flex; align-items: center; gap: 28px; padding: 0 96px; color: #fff; font-size: 40px; line-height: 1.3; opacity: 0; }
+      .cap .step { flex: none; padding: 8px 18px; border-radius: 8px; background: #f6f3eb; color: #1f3a2c; font-size: 30px; font-weight: 700; letter-spacing: 0.02em; }
+      .card { display: flex; flex-direction: column; justify-content: center; padding: 0 160px; gap: 28px; }
+      .card h1 { font-size: 104px; line-height: 1.05; letter-spacing: -0.02em; color: #1f3a2c; }
+      .card p { font-size: 46px; line-height: 1.35; }
+      .card .small { font-size: 32px; color: #4c5a50; }
+      .card .link { font-size: 44px; font-weight: 700; color: #375d46; }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="45" data-width="1920" data-height="1080">
+      <section id="s-title" class="clip scene card" data-start="0" data-duration="5" data-track-index="0">
+        <h1 id="title-name">Integration Failure Lab</h1>
+        <p id="title-line">Break a claims integration on purpose.<br />See the failure. Fix it.</p>
+        <p id="title-note" class="small">A deterministic simulator · synthetic data, no real payers or patients</p>
+      </section>
+
+      <section id="s-break" class="clip scene" data-start="5" data-duration="7" data-track-index="0">
+        <div class="cam" data-layout-allow-overflow data-shot="break"><img src="captures/break.png" alt="" /></div>
+      </section>
+      <section id="s-failure" class="clip scene" data-start="12" data-duration="13" data-track-index="0">
+        <div class="cam" data-layout-allow-overflow data-shot="failure"><img src="captures/failure.png" alt="" /></div>
+      </section>
+      <section id="s-fix" class="clip scene" data-start="25" data-duration="6" data-track-index="0">
+        <div class="cam" data-layout-allow-overflow data-shot="fix"><img src="captures/fix.png" alt="" /></div>
+      </section>
+      <section id="s-fixed" class="clip scene" data-start="31" data-duration="10" data-track-index="0">
+        <div class="cam" data-layout-allow-overflow data-shot="fixed"><img src="captures/fixed.png" alt="" /></div>
+      </section>
+
+      <section id="s-outro" class="clip scene card" data-start="41" data-duration="4" data-track-index="0">
+        <h1>Twelve failures to try</h1>
+        <p>Timeouts, duplicates, reordering, schema changes and poison messages, each with the safeguard that fixes it.</p>
+        <p class="link">dflippojr.dev/#lab</p>
+        <p class="small">github.com/dflippojr/integration-failure-lab</p>
+      </section>
+
+      <div id="bar" class="bar clip" data-start="5" data-duration="36" data-track-index="1"></div>
+      <div id="cap-break" class="clip cap" data-start="5" data-duration="7" data-track-index="2"><span class="step">1 · Break it</span><span>Lose the acknowledgement for ClaimPaid: the claim system applies the payment, but the queue never hears back.</span></div>
+      <div id="cap-retry" class="clip cap" data-start="12" data-duration="7.5" data-track-index="2"><span class="step">2 · Watch</span><span>No ack within 2 s, so the queue retries, and the claim system applies ClaimPaid a second time.</span></div>
+      <div id="cap-wrong" class="clip cap" data-start="19.5" data-duration="5.5" data-track-index="2"><span class="step">2 · Watch</span><span>$240 paid on a $120 claim. Nothing failed loudly, so nothing flags it.</span></div>
+      <div id="cap-fix" class="clip cap" data-start="25" data-duration="6" data-track-index="2"><span class="step">3 · Fix it</span><span>Keep the same failure and turn on the idempotent consumer: dedupe on eventId.</span></div>
+      <div id="cap-skip" class="clip cap" data-start="31" data-duration="4.5" data-track-index="2"><span class="step">3 · Fix it</span><span>The retry still arrives, but the claim system has seen that event and skips it.</span></div>
+      <div id="cap-right" class="clip cap" data-start="35.5" data-duration="5.5" data-track-index="2"><span class="step">3 · Fix it</span><span>The lab compares the runs: one setting changed, and the payment went from $240 to $120.</span></div>
+    </div>
+
+    <script>
+      (() => {
+        const { scale, paper, shots } = window.CAPTURES;
+        const W = 1920, H = 880; // the screen area above the caption bar
+        const tl = gsap.timeline({ paused: true });
+        const px = v => v * scale;
+
+        // Size each camera to its screen and add a ring (or cover) element over a part, in capture pixels.
+        const cams = {};
+        for (const cam of document.querySelectorAll('.cam')) {
+          const shot = shots[cam.dataset.shot];
+          gsap.set(cam, { width: px(shot.width), height: px(shot.height) });
+          cams[cam.dataset.shot] = { el: cam, shot };
+        }
+        const overlay = (name, cls, box, pad = 0) => {
+          const el = document.createElement('div');
+          el.className = cls;
+          gsap.set(el, { left: px(box.x - pad), top: px(box.y - pad), width: px(box.width + 2 * pad), height: px(box.height + 2 * pad) });
+          cams[name].el.append(el);
+          return el;
+        };
+        const ring = (name, part, cls = '') => overlay(name, `ring ${cls}`, cams[name].shot.parts[part], 6);
+
+        // The camera transform that centres a box (or two boxes' union) in the screen area.
+        const frame = (name, parts, { pad = 80, max = 2 } = {}) => {
+          const boxes = [].concat(parts).map(p => cams[name].shot.parts[p]);
+          const x0 = Math.min(...boxes.map(b => b.x)), y0 = Math.min(...boxes.map(b => b.y));
+          const x1 = Math.max(...boxes.map(b => b.x + b.width)), y1 = Math.max(...boxes.map(b => b.y + b.height));
+          const s = Math.min((W - 2 * pad) / px(x1 - x0), (H - 2 * pad) / px(y1 - y0), max);
+          return { scale: s, x: W / 2 - px((x0 + x1) / 2) * s, y: H / 2 - px((y0 + y1) / 2) * s };
+        };
+        const look = (name, parts, at, opts) => tl.set(cams[name].el, frame(name, parts, opts), at);
+        const move = (name, parts, at, duration, opts) =>
+          tl.to(cams[name].el, { ...frame(name, parts, opts), duration, ease: 'power2.inOut' }, at);
+        const show = (el, at, duration = 0.4) => tl.fromTo(el, { opacity: 0 }, { opacity: 1, duration, ease: 'power1.out' }, at);
+        const hide = (el, at, duration = 0.3) => tl.to(el, { opacity: 0, duration, ease: 'power1.in' }, at);
+        const caption = (id, start, end) => { show(`#${id}`, start + 0.15, 0.35); hide(`#${id}`, end - 0.3, 0.25); };
+
+        // Replay the trace rows one at a time, as the lab plays a run: a cover in the trace's own colour
+        // steps down a row at a time and lifts at the end.
+        const replay = (name, start, step) => {
+          const { rows, parts } = cams[name].shot;
+          const bottom = parts.trace.y + parts.trace.height - 1;
+          const cover = overlay(name, 'cover', { x: parts.trace.x + 1, y: rows[0].y, width: parts.trace.width - 2, height: bottom - rows[0].y });
+          gsap.set(cover, { backgroundColor: paper });
+          rows.forEach((row, i) => tl.set(cover, { top: px(row.y + row.height), height: px(Math.max(0, bottom - row.y - row.height)) }, start + i * step));
+          return start + rows.length * step;
+        };
+
+        // 0-5 s: title
+        show('#title-name', 0.2, 0.6);
+        show('#title-line', 0.7, 0.6);
+        show('#title-note', 1.4, 0.6);
+
+        // 5-12 s: break it
+        look('break', 'form', 5, { max: 1.6 });
+        const ackLost = ring('break', 'control');
+        move('break', 'control', 6.4, 1.4, { max: 2.2, pad: 260 });
+        show(ackLost, 7.6);
+        caption('cap-break', 5, 12);
+
+        // 12-25 s: the failure plays out, then the wrong record
+        look('failure', 'trace', 12, { max: 1.5, pad: 60 });
+        const played = replay('failure', 12.6, 0.42);
+        const lost = ring('failure', 'lost'), twice = ring('failure', 'twice');
+        show(lost, Math.min(played, 16.6));
+        show(twice, Math.min(played + 0.2, 17.6));
+        caption('cap-retry', 12, 19.5);
+        hide(lost, 19.3); hide(twice, 19.3);
+        move('failure', ['verdict', 'record'], 19.3, 1.2, { max: 1.6 });
+        const paid = ring('failure', 'paid');
+        show(paid, 20.8);
+        caption('cap-wrong', 19.5, 25);
+
+        // 25-31 s: fix it
+        look('fix', 'form', 25, { max: 1.6 });
+        const dedupe = ring('fix', 'control', 'good');
+        move('fix', 'control', 26.2, 1.4, { max: 2.2, pad: 260 });
+        show(dedupe, 27.4);
+        caption('cap-fix', 25, 31);
+
+        // 31-41 s: the same failure, the right record, and the comparison
+        look('fixed', 'trace', 31, { max: 1.5, pad: 60 });
+        const replayed = replay('fixed', 31.4, 0.28);
+        const skipped = ring('fixed', 'skipped', 'good');
+        show(skipped, Math.min(replayed, 34.6));
+        caption('cap-skip', 31, 35.5);
+        hide(skipped, 35.3);
+        move('fixed', 'compared', 35.3, 1.3, { max: 1.6, pad: 60 });
+        const change = ring('fixed', 'change', 'good'), paidChange = ring('fixed', 'paidChange', 'good');
+        show(change, 36.8);
+        show(paidChange, 37.6);
+        caption('cap-right', 35.5, 41);
+
+        // 41-45 s: outro
+        show('#s-outro h1', 41.2, 0.5);
+        show('#s-outro p', 41.6, 0.6);
+
+        tl.set({}, {}, 45);
+        window.__timelines = window.__timelines || {};
+        window.__timelines.main = tl;
+        tl.seek(0);
+      })();
+    </script>
+  </body>
+</html>

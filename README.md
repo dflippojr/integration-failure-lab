@@ -4,6 +4,10 @@ Break a small healthcare-style integration on purpose, then watch what happens: 
 
 Try it on [dflippojr.dev](https://dflippojr.dev/#lab), where it's the site's playground.
 
+[![45-second demo: lose the ack for ClaimPaid, watch the retry pay the claim twice, then turn on the idempotent consumer and rerun](demo/out/lab-demo-poster.png)](demo/out/lab-demo.mp4)
+
+*45-second silent demo ([MP4](demo/out/lab-demo.mp4), 1.8 MB): break the claims integration, see the failure, fix it. Captions are burned in. See [Re-rendering the demo](#re-rendering-the-demo).*
+
 **Status:** v1 simulation engine and all twelve scenarios built and tested (`npm test`, Node 20+, no runtime dependencies). Browser UI built (`ui/`): a first-visit picker for **Guided** or **Free-form**, animated trace, expected-vs-observed record, verdict, and final Dead-letter queue, Dropped messages, and Ordering buffer contents. Each final group shows its count and either entry details or an explicit empty state. Trace counters (including Parked / dropped events) are cumulative history, not current queue occupancy: replay can drain the final DLQ while leaving historical parked events counted. Snapshots appear when playback finishes, including with reduced motion, and clear on a new run or mode, scenario, or source switch. **v2 (Java 21 / Spring Boot 4.1.1)** in `java/` executes the same scenario files over real HTTP (a delivery queue with read timeouts, retries, and a dead-letter queue posting to an embedded-Tomcat claim-status service with server-side fault injection) and exports traces to `executed/`. Guided mode on the site can replay those recorded runs next to the simulation.
 
 - [Architecture](docs/ARCHITECTURE.md): components, event model, what's simulated vs. executed
@@ -53,6 +57,15 @@ node --input-type=module -e 'import {readFileSync} from "node:fs"; import {gzipS
 The drift tests also traverse the static imports, check that recordings are absent, and verify both normalized totals stay under the minified budget (24,500 raw / 9,500 gzip-9).
 
 All data is synthetic. No real payers, patients, or PHI.
+
+### Re-rendering the demo
+
+The clip is rendered with [HyperFrames](https://github.com/heygen-com/hyperframes) (Apache-2.0). After a UI change, run `npm run demo:render` from the repository root (Node 22+, after `npm ci` and `npx playwright install chromium`), check the new clip, and commit `demo/out/`. The command:
+
+1. builds the current `engine/`, `ui/` and `scenarios/` into the git-ignored `dist-test/` and drives the real lab with Playwright (`demo/capture.mjs`): Free-form, **Ack lost for** ClaimPaid, **Run**, then **Idempotent consumer** and **Run** again. Captures go to the git-ignored `demo/scenes/captures/`, and the script stops if the lab no longer pays $240.00 and then $120.00.
+2. renders the committed scenes in `demo/scenes/index.html` (camera moves, highlights and captions over those captures) to `demo/out/lab-demo.mp4` (H.264, 1920x1080, 30 fps, 45 s) and takes `demo/out/lab-demo-poster.png` from 22 s. It fails if the clip is over 5 MB.
+
+HyperFrames, FFmpeg (`ffmpeg-static`) and GSAP are pinned in `demo/package.json` with their own lockfile, and the first run installs them into `demo/node_modules/`. They are not part of the root install, CI or `dist/`. HyperFrames downloads its own headless Chrome (about 270 MB) into `~/.cache/hyperframes` on first use. Renders use two workers and software GL. With the same machine and inputs, they are byte-identical. Another OS or font set can differ by a few pixels. To change the story or captions, edit `demo/scenes/index.html` and `demo/capture.mjs`. To check the composition, run `node demo/node_modules/hyperframes/bin/hyperframes.mjs check demo/scenes` after a render.
 
 ### Disposable UI testing
 
