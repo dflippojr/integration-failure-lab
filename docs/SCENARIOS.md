@@ -19,6 +19,8 @@ The expected record for every scenario is: claim `C-1001`, status `Paid`, paid a
 | 6a | Poison message: the producer ships `ClaimPaid` with the amount as text, so the consumer fails on every delivery | Retry limit 3, DLQ, no replay | Four failed attempts, then `ClaimPaid` sits in the DLQ; status stays `Accepted` and unpaid, visibly | Retrying a message that can never work only delays the failure; the DLQ holds it but nothing repairs the record. |
 | 6b | Same as 6a | Replay after the producer fix | The fix ships 5 s after the DLQ fills and `ClaimPaid` is replayed with a fresh attempt count; the DLQ drains and the record is correct | Separate "retry later" from "never going to work": park it, fix the cause, replay. |
 
+Payload faults (`poison`, `schemaChange`) change what the producer sends. A replay after the fix (`replayAfterFix`) sends the original payload for either fault. A scenario that sets both on the same event is rejected when it loads (`run` in the engine, `Scenario.fromMap` in Java), because the two runtimes would otherwise compose them differently.
+
 ## Acceptance criteria for v1
 
 Scenario files are `scenarios/<id>-*.json`. Tests: `npm test` and `cd java && ./mvnw verify`.
