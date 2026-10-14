@@ -41,6 +41,10 @@ export function backoffMs(kind, retryNumber) {
 
 export function run(scenario, overrides = {}) {
   const failures = scenario.failures ?? {};
+  // Producer-side payload faults compose differently in each runtime, so a scenario may not stack them on one event.
+  if (failures.poison && failures.poison.event === failures.schemaChange?.event) {
+    throw new Error(`Scenario ${scenario.id}: failures.poison and failures.schemaChange cannot target the same event (${failures.poison.event})`);
+  }
   const guards = { ...DEFAULT_SAFEGUARDS, ...scenario.safeguards, ...overrides };
   const events = claimEvents();
   const byType = Object.fromEntries(events.map(e => [e.type, e]));
@@ -53,6 +57,7 @@ export function run(scenario, overrides = {}) {
   }
   if (failures.schemaChange) {
     const e = byType[failures.schemaChange.event];
+    original[e.eventId] ??= e.payload; // replay after the producer fix sends the original, as with poison
     e.payload = { amountPaid: e.payload.paidAmount };
   }
 

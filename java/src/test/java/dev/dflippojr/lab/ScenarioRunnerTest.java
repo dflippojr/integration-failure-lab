@@ -7,6 +7,7 @@ import java.util.Map;
 import java.util.stream.Stream;
 
 import org.junit.jupiter.api.DynamicTest;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -67,6 +68,23 @@ class ScenarioRunnerTest {
                 combinedFailuresDoNotBlockIndependentDeliveries(result);
             }
         }));
+    }
+
+    /** Parity with test/engine.test.js: the replay after the producer fix carries the original payload. */
+    @Test
+    void schemaChangeReplayAfterFixDeliversTheOriginalPayload() throws Exception {
+        Scenario scenario = Scenario.fromMap(Map.of(
+                "id", "x1-schema-replay",
+                "failures", Map.of("schemaChange", Map.of("event", "ClaimPaid")),
+                "safeguards", Map.of("schemaValidation", true, "replayAfterFix", true)));
+        Map<String, Object> result = runner.run(scenario);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> record = (Map<String, Object>) result.get("record");
+        assertThat(record.get("status")).isEqualTo("Paid");
+        assertThat(((Number) record.get("paidCents")).longValue()).isEqualTo(12000L);
+        assertThat(record.get("applied")).isEqualTo(List.of("E1", "E2", "E3"));
+        assertThat(ids(result.get("dlq"))).isEmpty();
+        assertThat(kinds(result)).contains("replay");
     }
 
     private static void reorderedSendRowsMarkTheHttpAttemptInsteadOfEnqueueing(Map<String, Object> result) {

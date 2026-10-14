@@ -104,6 +104,25 @@ test('6b replays the parked message with a fresh attempt count and drains the DL
   assert.ok(kinds(r, 'E3').indexOf('replay') > kinds(r, 'E3').indexOf('dead-letter'));
 });
 
+test('a schema-changed ClaimPaid is replayed with the producer fix, matching the Java runner', () => {
+  const r = run({
+    id: 'x1-schema-replay',
+    failures: { schemaChange: { event: 'ClaimPaid' } },
+    safeguards: { schemaValidation: true, replayAfterFix: true },
+  });
+  assert.deepEqual(r.record, EXPECTED_RECORD);
+  assert.deepEqual(r.dlq, []);
+  assert.ok(kinds(r, 'E3').indexOf('replay') > kinds(r, 'E3').indexOf('dead-letter'));
+  assert.equal(r.verdict.ok, true);
+});
+
+test('poison and a schema change on the same event are rejected when the scenario runs', () => {
+  const scenario = { id: 'x2-poison-schema', failures: { poison: { event: 'ClaimPaid' }, schemaChange: { event: 'ClaimPaid' } } };
+  assert.throws(() => run(scenario), {
+    message: 'Scenario x2-poison-schema: failures.poison and failures.schemaChange cannot target the same event (ClaimPaid)',
+  });
+});
+
 test('overrides replace scenario safeguards (free-form mode)', () => {
   const r = run(byId('2a-duplicate'), { idempotency: true });
   assert.equal(r.verdict.ok, true);

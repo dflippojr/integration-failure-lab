@@ -73,6 +73,11 @@ public record Scenario(String id, int order, String title, Failures failures, Sa
                 eventOf(f.get("schemaChange")),
                 eventOf(f.get("poison")));
 
+        if (failures.poisonEvent() != null && failures.poisonEvent().equals(failures.schemaChangeEvent())) {
+            throw new IllegalArgumentException("Scenario " + json.get("id")
+                    + ": failures.poison and failures.schemaChange cannot target the same event (" + failures.poisonEvent() + ")");
+        }
+
         Map<String, Object> g = (Map<String, Object>) json.getOrDefault("safeguards", Map.of());
         Safeguards safeguards;
         try {
