@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
-import { run, backoffMs, judge, EXPECTED_RECORD } from '../engine/engine.js';
+import { run, backoffMs, judge, suggestSafeguards, SAFEGUARD_CHANGES, EXPECTED_RECORD } from '../engine/engine.js';
 
 const dir = new URL('../scenarios/', import.meta.url);
 const scenarios = readdirSync(dir)
@@ -130,4 +130,65 @@ test('backoff schedules', () => {
 test('judge accepts only the expected record', () => {
   assert.equal(judge({ ...EXPECTED_RECORD, applied: [...EXPECTED_RECORD.applied] }).ok, true);
   assert.equal(judge({ status: 'Paid', paidCents: 12000, applied: ['E1', 'E3'] }).ok, false);
+});
+
+// Every Free-form combination the form can express (exponential backoff only).
+function* freeFormScenarios() {
+  const events = ['ClaimSubmitted', 'ClaimAccepted', 'ClaimPaid'];
+  const timeouts = [null, ...events.flatMap(event => [[1], [1, 2], 'all'].map(attempts => ({ event, attempts })))];
+  const each = [null, ...events.map(event => ({ event }))];
+  for (const timeout of timeouts) for (const duplicate of each) for (const reorderEvent of each)
+    for (const schemaChange of [null, { event: 'ClaimPaid' }]) for (const retryLimit of [0, 1, 2, 3, 4, 5])
+      for (let bits = 0; bits < 16; bits++) {
+        const failures = {};
+        if (timeout) failures.timeout = timeout;
+        if (duplicate) failures.duplicate = duplicate;
+        if (reorderEvent) failures.reorder = { ...reorderEvent, delayMs: 500 };
+        if (schemaChange) failures.schemaChange = schemaChange;
+        yield { failures, safeguards: {
+          retryLimit, backoff: 'exponential', deadLetter: !!(bits & 1), idempotency: !!(bits & 2), ordering: !!(bits & 4), schemaValidation: !!(bits & 8),
+        } };
+      }
+}
+
+test('every suggested safeguard changes the verdict, and a safeguard that fixes the run is always suggested', () => {
+  let shown = 0;
+  const seen = new Set();
+  for (const scenario of freeFormScenarios()) {
+    const before = run(scenario);
+    const tips = suggestSafeguards(scenario);
+    if (before.verdict.ok) { assert.deepEqual(tips, []); continue; }
+    for (const { safeguard, value } of tips) {
+      const after = run(scenario, { [safeguard]: value }).verdict;
+      const fewer = after.problems.length < before.verdict.problems.length && after.problems.every(p => before.verdict.problems.includes(p));
+      assert.ok(fewer || (!before.verdict.visible && after.visible), `${safeguard} does not help ${JSON.stringify(scenario)}`);
+      shown++;
+      seen.add(safeguard);
+    }
+    for (const { safeguard, value } of SAFEGUARD_CHANGES) {
+      if (run(scenario, { [safeguard]: value }).verdict.ok) {
+        assert.ok(tips.some(t => t.safeguard === safeguard), `${safeguard} fixes ${JSON.stringify(scenario)} but is not suggested`);
+      }
+    }
+  }
+  assert.ok(shown > 0);
+  assert.deepEqual([...seen].sort(), SAFEGUARD_CHANGES.map(c => c.safeguard).sort());
+});
+
+test('suggestions for the scenarios', () => {
+  const tips = id => suggestSafeguards(byId(id)).map(t => t.safeguard);
+  assert.deepEqual(tips('1c-fire-and-forget'), ['deadLetter']);
+  assert.deepEqual(tips('2a-duplicate'), ['idempotency', 'ordering']); // ordering drops the stale redelivery too
+  assert.deepEqual(tips('3a-out-of-order'), ['ordering']);
+  assert.deepEqual(tips('5a-schema-change'), ['schemaValidation']);
+  assert.deepEqual(tips('2b-duplicate-idempotent'), []);
+});
+
+test('ordering is suggested when the dead-letter queue holds only an applied message', () => {
+  const scenario = {
+    failures: { duplicate: { event: 'ClaimPaid' }, reorder: { event: 'ClaimAccepted', delayMs: 500 } },
+    safeguards: { retryLimit: 0 },
+  };
+  assert.equal(run(scenario).dlq.length, 1);
+  assert.deepEqual(suggestSafeguards(scenario), [{ safeguard: 'ordering', value: true }]);
 });

@@ -786,3 +786,19 @@ test('an unknown, empty or non-string scenario option behaves like no option', a
     assert.deepEqual({ ...fresh.saved, ...back.saved }, {});
   }
 });
+
+const tryLine = root => root.find(e => e.className === 'ifl-lesson')[0]?.text();
+
+test('the Try line offers only safeguards that change the run', () => {
+  const root = mount(undefined, 'guided');
+  chooseScenario(root, '1c');
+  tryButton(root).listeners.click();
+  submitForm(root);
+  assert.equal(tryLine(root), 'Try: turn on the dead-letter queue, so lost messages are at least visible.');
+});
+
+test('the Try line offers the ordered consumer when the dead-letter queue holds only an applied message', () => {
+  const root = mount(undefined, 'free');
+  submitValues(root, { ...FREE_FORM_DEFAULTS, duplicate: 'on', reorder: 'on', retryLimit: '0', deadLetter: 'on' });
+  assert.equal(tryLine(root), 'Try: turn on the ordered consumer.');
+});

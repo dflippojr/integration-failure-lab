@@ -177,6 +177,6 @@ test('initial static UI graph excludes recordings and stays within the minified 
   // Issue #66 budget: minified totals measure 24,094 raw / 9,320 gzip-9 bytes.
   // Issue #63 (Try this in Free-form) re-baselined it: 24,889 raw / 9,631 gzip-9 bytes.
   // Issue #64 (compare with the previous Free-form run) re-baselined it: 26,372 raw / 10,069 gzip-9 bytes.
-  assert.ok(bytes.reduce((sum, b) => sum + b.length, 0) < 26800);
-  assert.ok(bytes.reduce((sum, b) => sum + gzipSync(b, { level: 9 }).length, 0) < 10250);
+  assert.ok(bytes.reduce((sum, b) => sum + b.length, 0) < 27200);
+  assert.ok(bytes.reduce((sum, b) => sum + gzipSync(b, { level: 9 }).length, 0) < 10450);
 });

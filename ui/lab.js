@@ -3,7 +3,7 @@
 // scenario (a full ID such as '2a-duplicate' or its chip prefix '2a', any case) opens Guided on that scenario
 // without running it, moving focus or saving the mode; an unknown or non-string value is ignored.
 // Uses the pure engine; everything runs client-side on a virtual clock.
-import { run, judge, DEFAULT_SAFEGUARDS, EXPECTED_RECORD, TIMING } from './engine.js';
+import { run, judge, suggestSafeguards, DEFAULT_SAFEGUARDS, EXPECTED_RECORD, TIMING } from './engine.js';
 import { SCENARIOS, RECORDING_IDS } from './scenarios.js';
 
 let recordings;
@@ -28,6 +28,13 @@ const FREE_LABELS = {
   ordering: 'Ordered consumer (buffer early events)', schemaValidation: 'Validate the payload schema',
 };
 const RETRY_LIMITS = [0, 1, 2, 3, 4, 5];
+const TIP_TEXT = {
+  idempotency: 'turn on the idempotent consumer',
+  ordering: 'turn on the ordered consumer',
+  schemaValidation: 'validate the payload schema, so the bad message fails loudly',
+  deadLetter: 'turn on the dead-letter queue, so lost messages are at least visible',
+  retryLimit: 'allow more retries',
+};
 const BACKOFFS = ['exponential', 'fixed', 'none'];
 const secs = ms => (ms >= 1000 ? `${(ms / 1000).toFixed(ms % 1000 ? 2 : 0)} s` : `${ms} ms`);
 
@@ -293,7 +300,7 @@ export function mountLab(root, { headingLevel = 3, scenario } = {}) {
       ev.preventDefault();
       const f = new FormData(form);
       const scenario = formScenario(name => f.get(name));
-      play(run(scenario), null, SIM_NOTE, toFormValues(scenario));
+      play(run(scenario), null, SIM_NOTE, scenario);
     };
     const form = h('form', { class: 'ifl-form', onsubmit: submit },
       h('fieldset', {}, h('legend', {}, 'Break something'),
@@ -316,8 +323,9 @@ export function mountLab(root, { headingLevel = 3, scenario } = {}) {
     output.hidden = true;
   }
 
-  // settings (Free-form values) mark a Free-form run: once it finishes it is compared with, then replaces, state.lastFree.
-  function play(result, lesson, note, settings) {
+  // scenario marks a Free-form run: once it finishes it is compared with, then replaces, state.lastFree.
+  function play(result, lesson, note, scenario) {
+    const settings = scenario && toFormValues(scenario);
     if (state.playing) clearInterval(state.playing);
     output.hidden = false;
     const list = h('ol', { class: 'ifl-trace' });
@@ -355,7 +363,7 @@ export function mountLab(root, { headingLevel = 3, scenario } = {}) {
     };
     const finish = () => {
       state.playing = null;
-      renderVerdict(verdictBox, result, lesson);
+      renderVerdict(verdictBox, result, lesson, scenario);
       if (settings) {
         if (state.lastFree) renderCompare(compareBox, state.lastFree, { values: settings, result });
         state.lastFree = { values: settings, result };
@@ -414,7 +422,7 @@ export function mountLab(root, { headingLevel = 3, scenario } = {}) {
     box.hidden = false;
   }
 
-  function renderVerdict(box, result, lesson) {
+  function renderVerdict(box, result, lesson, scenario) {
     const { record, expected, verdict } = result;
     const cell = (a, b, fmt = x => x) => h('td', { class: a === b ? '' : 'ifl-diff' }, fmt(a ?? '—'));
     const applied = r => r.applied.length ? r.applied.join(' → ') : 'none';
@@ -429,19 +437,15 @@ export function mountLab(root, { headingLevel = 3, scenario } = {}) {
           h('tr', {}, h('th', {}, 'Paid'), h('td', {}, dollars(expected.paidCents)), cell(record.paidCents, expected.paidCents, dollars)),
           h('tr', {}, h('th', {}, 'Events applied'), h('td', {}, applied(expected)), cell(applied(record), applied(expected))))),
       lesson ? h('p', { class: 'ifl-lesson' }, h('strong', {}, 'Lesson: '), lesson) : null,
-      !lesson && !verdict.ok ? hint(result) : null,
+      !lesson && !verdict.ok ? hint(result, scenario) : null,
     ].filter(Boolean));
   }
 
-  function hint({ verdict, guards, dlq }) {
-    const tips = [];
-    const has = text => verdict.problems.some(p => p.includes(text));
-    if (has('times') && !guards.idempotency) tips.push('turn on the idempotent consumer');
-    if ((has('out of order') || has('final status')) && !guards.ordering && !dlq.length) tips.push('turn on the ordered consumer');
-    if (has('paid $0.00') && !dlq.length && !guards.schemaValidation) tips.push('validate the payload schema, so the bad message fails loudly');
-    if (has('never applied') && !dlq.length && !guards.deadLetter) tips.push('turn on the dead-letter queue, so lost messages are at least visible');
-    if (has('never applied') && guards.retryLimit < 3) tips.push('allow more retries');
-    if (has('stuck in the ordering buffer')) tips.push('an ordered consumer needs a timeout for gaps that never fill; this demo leaves it stuck on purpose');
+  function hint({ verdict }, scenario) {
+    const tips = suggestSafeguards(scenario).map(({ safeguard }) => TIP_TEXT[safeguard]);
+    if (verdict.problems.some(p => p.includes('stuck in the ordering buffer'))) {
+      tips.push('an ordered consumer needs a timeout for gaps that never fill; this demo leaves it stuck on purpose');
+    }
     if (!tips.length) return null;
     return h('p', { class: 'ifl-lesson' }, h('strong', {}, 'Try: '), tips.join('; '), '.');
   }

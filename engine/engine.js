@@ -242,3 +242,25 @@ export function judge(record, { dlq = [], dropped = [], buffered = [] } = {}) {
   else summary = 'The record is wrong, and nothing flags it.';
   return { ok, visible, problems, summary };
 }
+
+// Safeguard changes worth offering for a run, each checked by rerunning the scenario with only that change.
+// A change is offered only when it makes a silent failure visible, or fixes the record or removes a problem without adding one.
+export const SAFEGUARD_CHANGES = Object.freeze([
+  { safeguard: 'idempotency', value: true },
+  { safeguard: 'ordering', value: true },
+  { safeguard: 'schemaValidation', value: true },
+  { safeguard: 'deadLetter', value: true },
+  { safeguard: 'retryLimit', value: 5 },
+]);
+
+export function suggestSafeguards(scenario) {
+  const before = run(scenario);
+  if (before.verdict.ok) return [];
+  return SAFEGUARD_CHANGES.filter(({ safeguard, value }) => {
+    if (before.guards[safeguard] === value) return false;
+    const { verdict } = run(scenario, { [safeguard]: value });
+    const { problems } = before.verdict;
+    if (!before.verdict.visible && verdict.visible) return true;
+    return verdict.problems.every(p => problems.includes(p)) && verdict.problems.length < problems.length;
+  });
+}
