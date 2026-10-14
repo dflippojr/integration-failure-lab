@@ -8,7 +8,8 @@
     "build": "node scripts/build.mjs",
     "ui:start": "node checks/ui-instance.mjs start",
     "ui:stop": "node checks/ui-instance.mjs stop",
-    "test:ui": "playwright test"
+    "test:ui": "playwright test",
+    "demo:render": "node demo/render.mjs"
   },
   "engines": {
     "node": ">=20"
