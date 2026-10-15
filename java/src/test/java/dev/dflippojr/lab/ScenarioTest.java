@@ -4,23 +4,36 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.Map;
+import java.util.stream.Stream;
 
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 class ScenarioTest {
 
-    @Test
-    void unsupportedBackoffFailsAtLoadWithTheScenarioAndAllowedValues() {
-        // Before validation, this poison scenario hung until the 30 s limit once its first retry computed a backoff.
+    static Stream<Arguments> unsupportedBackoffs() {
+        // Before validation, a poison scenario with an unknown backoff hung until the 30 s limit once its first retry computed a backoff.
         Map<String, Object> json = Map.of(
                 "id", "unknown-backoff",
                 "failures", Map.of("poison", Map.of("event", "ClaimPaid")),
                 "safeguards", Map.of("backoff", "bogus"));
-        assertThatThrownBy(() -> Scenario.fromMap(json))
+        return Stream.of(
+                Arguments.of("bogus via Scenario.fromMap", (ThrowingCallable) () -> Scenario.fromMap(json),
+                        "Scenario unknown-backoff: Unsupported safeguards.backoff \"bogus\"; expected one of none, fixed, exponential"),
+                Arguments.of("null via the Safeguards constructor",
+                        (ThrowingCallable) () -> new Scenario.Safeguards(3, null, false, false, false, true, false),
+                        "Unsupported safeguards.backoff \"null\"; expected one of none, fixed, exponential"));
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("unsupportedBackoffs")
+    void unsupportedBackoffFailsAtLoadWithTheScenarioAndAllowedValues(String ignoredCase, ThrowingCallable load, String message) {
+        assertThatThrownBy(load)
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("Scenario unknown-backoff: Unsupported safeguards.backoff \"bogus\"; expected one of none, fixed, exponential");
+                .hasMessage(message);
     }
 
     @Test
@@ -42,17 +55,21 @@ class ScenarioTest {
         assertThat(scenario.failures().schemaChangeEvent()).isEqualTo("ClaimAccepted");
     }
 
-    @Test
-    void missingBackoffIsRejectedWhenConstructedDirectly() {
-        assertThatThrownBy(() -> new Scenario.Safeguards(3, null, false, false, false, true, false))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("Unsupported safeguards.backoff \"null\"");
+    static Stream<Arguments> backoffSchedules() {
+        return Stream.of(
+                Arguments.of("none", new long[] {0, 0, 0}),
+                Arguments.of("fixed", new long[] {100, 100}),
+                Arguments.of("exponential", new long[] {100, 200, 400}));
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"none", "fixed", "exponential"})
-    void supportedBackoffsLoad(String backoff) {
+    @MethodSource("backoffSchedules")
+    void supportedBackoffsLoadWithExactSchedules(String backoff, long[] expectedMs) {
         Scenario scenario = Scenario.fromMap(Map.of("id", "ok", "safeguards", Map.of("backoff", backoff)));
-        assertThat(scenario.safeguards().backoffMs(100, 2)).isNotNegative();
+        long[] actual = new long[expectedMs.length];
+        for (int retry = 1; retry <= expectedMs.length; retry++) {
+            actual[retry - 1] = scenario.safeguards().backoffMs(100, retry);
+        }
+        assertThat(actual).as("%s backoff for retries 1..%d with base 100", backoff, expectedMs.length).containsExactly(expectedMs);
     }
 }
