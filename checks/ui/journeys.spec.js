@@ -59,7 +59,11 @@ test('J2 all guided scenarios expose their verdict, claim record and final queue
     await expect(rows.nth(0).locator('td').last()).toHaveText(result.record.status ?? '—');
     await expect(rows.nth(1).locator('td').last()).toHaveText('$' + (result.record.paidCents / 100).toFixed(2));
     await expect(rows.nth(2).locator('td').last()).toHaveText(result.record.applied.join(' → ') || 'none');
-    await expect(page.getByRole('region', { name: 'Event trace', exact: true }).locator('li')).toHaveCount(result.trace.length);
+    const trace = page.getByRole('region', { name: 'Event trace', exact: true });
+    await expect(trace.locator('li')).toHaveCount(result.trace.length);
+    await expect(trace).toHaveAttribute('tabindex', '0');
+    const parked = result.trace.filter(row => row.kind === 'dead-letter' || row.kind === 'drop').length;
+    await expect(page.getByText(/^Parked \/ dropped events /)).toHaveText('Parked / dropped events ' + parked);
     await finalGroups(page, result);
   }
   await page.reload();
@@ -100,6 +104,11 @@ test('J3 unavailable recording offers retry and a working simulation', async ({ 
 
 test('J4 free-form duplicate, dedupe, timeout, validation and reload defaults', async ({ page }) => {
   await page.getByRole('button', { name: /^Free-form Pick/ }).click();
+  const selects = page.getByRole('combobox');
+  await expect(selects).toHaveCount(6);
+  for (const name of ['Event that times out', 'Which attempts time out', 'Event whose ack is lost', 'Event to delay', 'Retries', 'Backoff']) {
+    await expect(page.getByRole('combobox', { name, exact: true })).toHaveCount(1);
+  }
   const runButton = page.getByRole('button', { name: 'Run', exact: true });
   const paid = page.locator('.ifl-record tbody tr').nth(1).locator('td').last();
   const compared = page.getByRole('region', { name: 'Compared with your previous run', exact: true });
@@ -111,9 +120,26 @@ test('J4 free-form duplicate, dedupe, timeout, validation and reload defaults', 
   await page.getByLabel('Idempotent consumer (dedupe on eventId)', { exact: true }).check();
   await runButton.click(); await expect(paid).toHaveText('$120.00');
   await expect(compared.getByRole('listitem')).toHaveText(['Idempotent consumer (dedupe on eventId): off → on']);
-  await expect(compared.locator('tbody tr').nth(2).locator('td')).toHaveText(['$240.00', '$120.00']);
+  await expect(compared.getByRole('columnheader')).toHaveText(['Claim C-1001', 'Previous', 'This run']);
+  const duplicate = { failures: { duplicate: { event: 'ClaimPaid' } } };
+  const before = run(duplicate), after = run(duplicate, { idempotency: true });
+  const comparisonRows = compared.locator('tbody tr');
+  await expect(comparisonRows).toHaveCount(4);
+  for (const [index, cells] of [
+    ['Verdict', before.verdict.summary, after.verdict.summary],
+    ['Status', 'Paid', 'Paid'],
+    ['Paid', '$240.00', '$120.00'],
+    ['Events applied', 'E1 → E2 → E3 → E3', 'E1 → E2 → E3'],
+  ].entries()) {
+    await expect(comparisonRows.nth(index).locator('th, td')).toHaveText(cells);
+  }
   await runButton.click(); await completed(page);
   await expect(compared).toContainText('Same settings as your previous run.');
+  await expect(comparisonRows).toHaveCount(4);
+  for (const row of await comparisonRows.all()) {
+    const cells = row.getByRole('cell');
+    await expect(cells.nth(1)).toHaveText(await cells.nth(0).innerText());
+  }
   await page.getByLabel('Ack lost for', { exact: true }).uncheck();
   await page.getByLabel('Downstream times out on', { exact: true }).check();
   await page.getByLabel('Which attempts time out', { exact: true }).selectOption('all');

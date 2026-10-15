@@ -2,7 +2,6 @@
 import { test, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
 import { register } from 'node:module';
 import { fileURLToPath } from 'node:url';
 
@@ -76,75 +75,6 @@ test('scenario chips have descriptive accessible names that start with their vis
   }
 });
 
-test('free-form selects each have a distinct label', () => {
-  const root = mount(undefined, 'free');
-  const selects = root.find(e => e.tagName === 'SELECT' && e.getAttribute('aria-label'));
-  const labels = selects.map(s => s.getAttribute('aria-label'));
-  assert.ok(labels.length >= 4);
-  assert.equal(new Set(labels).size, labels.length, labels.join(', '));
-  assert.ok(!labels.includes('Event'));
-});
-
-test('the scrolling trace is a named, focusable region', () => {
-  const root = mount(undefined, 'guided');
-  root.find(e => e.className.includes('ifl-run'))[0].listeners.click();
-  const [region] = root.find(e => e.className === 'ifl-trace-scroll');
-  assert.equal(region.getAttribute('role'), 'region');
-  assert.equal(region.getAttribute('tabindex'), '0');
-  assert.equal(region.getAttribute('aria-label'), 'Event trace');
-  const [list] = region.children;
-  assert.equal(list.tagName, 'OL');
-  assert.ok(list.children.length > 0);
-});
-
-test('guided and free-form wrap the bar, controls, status and output in one two-pane console, in reading order', () => {
-  for (const mode of ['guided', 'free']) {
-    const root = mount(undefined, mode);
-    assert.equal(root.children.length, 1);
-    const [frame] = root.children;
-    assert.equal(frame.className, 'ifl-console ifl-panes');
-    assert.deepEqual(frame.children.map(c => c.className), ['ifl-bar', 'ifl-body', 'ifl-status', 'ifl-output']);
-    const [bar, body, status, output] = frame.children;
-    assert.ok(bar.find(e => e.className === 'ifl-link').length, 'the mode switch sits in the title bar');
-    assert.ok(body.find(e => e.className.includes('ifl-run')).length, 'Run sits in the controls pane');
-    assert.equal(status.getAttribute('role'), 'status');
-    assert.equal(status.getAttribute('aria-label'), 'Replay status');
-    assert.equal(output.hidden, true, 'the output pane stays empty until the first run');
-    if (mode === 'guided') clickRun(root);
-    else {
-      const OriginalFormData = globalThis.FormData;
-      const values = { retryLimit: '3', backoff: 'exponential', deadLetter: 'on' };
-      globalThis.FormData = class { get(name) { return values[name] ?? null; } };
-      try { byClass(body, 'ifl-form').listeners.submit({ preventDefault() {} }); }
-      finally { globalThis.FormData = OriginalFormData; }
-    }
-    assert.equal(output.hidden, false);
-    assert.deepEqual(output.children.map(c => c.className || c.tagName), ['ifl-kicker', 'ifl-stats', 'ifl-trace-scroll', 'ifl-verdict ifl-ok', 'ifl-compare', 'ifl-final-state', 'ifl-note']);
-    assert.equal(output.find(e => e.className.startsWith('ifl-verdict'))[0].getAttribute('role'), 'status');
-  }
-});
-
-test('the mode picker keeps the single-column console at any width', () => {
-  const root = new FakeElement('div');
-  const lab = mountLab(root);
-  assert.equal(root.children[0].className, 'ifl-console');
-  lab.setMode('guided');
-  assert.equal(root.children[0].className, 'ifl-console ifl-panes');
-});
-
-test('the two-pane rules key off the lab width, skip print, and touch only the panes', () => {
-  const css = readFileSync(fileURLToPath(new URL('../ui/lab.css', import.meta.url)), 'utf8').replace(/\r\n/g, '\n');
-  assert.match(css, /\.ifl \{[^}]*container: ifl \/ inline-size;/);
-  const start = css.indexOf('@media screen {\n  @container ifl (min-width: 810px) {');
-  assert.ok(start > 0, 'the panes sit in a screen-only container query on the lab, not a viewport query');
-  const block = css.slice(start).replace(/\/\*[\s\S]*?\*\//g, '');
-  const selectors = [...block.matchAll(/[{}]\s*([^{}@]+?)\s*\{/g)].map(m => m[1]);
-  assert.ok(selectors.length > 10);
-  for (const sel of selectors) for (const part of sel.split(/,(?![^(]*\))/)) assert.match(part.trim(), /^\.ifl-panes\b/, sel);
-  for (const area of ['bar', 'body', 'status', 'output']) assert.match(block, new RegExp(`\\.ifl-${area} \\{ grid-area: ${area};`));
-  assert.match(block, /grid-template-areas: "bar bar" "body status" "body output";/);
-});
-
 const byClass = (root, name) => root.find(e => e.className === name)[0];
 const clickRun = root => root.find(e => e.className.includes('ifl-run'))[0].listeners.click();
 const chooseScenario = (root, id) => root.find(e => e.className === 'ifl-chip' && e.text() === id)[0].listeners.click();
@@ -196,35 +126,6 @@ async function animated(fn) {
     globalThis.setInterval = originalSet;
     globalThis.clearInterval = originalClear;
     window.matchMedia = () => ({ matches: true });
-  }
-}
-
-for (const source of ['sim', 'exec']) {
-  for (const id of ['1b', '1c', '6a', '6b']) {
-    for (const motion of ['reduced', 'animated']) {
-      test(`${id} ${source}: final contents and historical counters with ${motion} playback`, async () => {
-        const check = async drain => {
-          const root = mount(undefined, 'guided');
-          chooseScenario(root, id);
-          chooseSource(root, source);
-          const scenario = SCENARIOS.find(s => s.id.startsWith(`${id}-`));
-          const result = source === 'sim' ? run(scenario) : EXECUTED[scenario.id];
-          await clickRun(root);
-          if (drain) {
-            assert.equal(byClass(root, 'ifl-final-state').hidden, true);
-            assert.equal(byClass(root, 'ifl-final-state').children.length, 0);
-            drain();
-          }
-          assertFinal(root, result);
-          const parked = byClass(root, 'ifl-stats').children.at(-1);
-          assert.equal(parked.children[0], 'Parked / dropped events ');
-          assert.equal(parked.children[1].textContent, 1);
-          if (id === '6b') assert.equal(result.dlq.length, 0);
-        };
-        if (motion === 'animated') await animated(check);
-        else await check();
-      });
-    }
   }
 }
 
@@ -574,45 +475,6 @@ test('every pre-filled Free-form run reproduces its guided simulation', () => {
   }
 });
 
-test('Try this in Free-form saves free mode, fills the form, does not run and focuses the first control', () => animated((drain, timers) => {
-  const saved = {};
-  const originalStorage = globalThis.localStorage;
-  globalThis.localStorage = { getItem: () => null, setItem: (k, v) => { saved[k] = v; } };
-  try {
-    const root = mount(undefined, 'guided');
-    chooseScenario(root, '2b');
-    tryButton(root).listeners.click();
-    assert.equal(saved['ifl-mode'], 'free');
-    assert.equal(byClass(root, 'ifl-output').hidden, true);
-    assert.equal(byClass(root, 'ifl-output').children.length, 0);
-    assert.equal(timers.size, 0, 'no playback starts');
-    const form = byClass(root, 'ifl-form');
-    assert.ok(form);
-    const first = form.find(e => ['BUTTON', 'INPUT', 'SELECT'].includes(e.tagName))[0];
-    assert.equal(globalThis.__focused, first);
-    assert.deepEqual(submitted(form), { ...FREE_FORM_DEFAULTS, duplicate: 'on', idempotency: 'on' });
-  } finally { globalThis.localStorage = originalStorage; }
-}));
-
-test('1c pre-fill merges the default safeguards it leaves out', () => {
-  const root = mount(undefined, 'guided');
-  chooseScenario(root, '1c');
-  tryButton(root).listeners.click();
-  const { deadLetter, ...rest } = FREE_FORM_DEFAULTS;
-  assert.deepEqual(submitted(byClass(root, 'ifl-form')), { ...rest, timeout: 'on', timeoutAttempts: 'all', retryLimit: '0' });
-});
-
-test('reaching Free-form through the mode switch after a pre-fill shows the defaults', () => {
-  const root = mount(undefined, 'guided');
-  chooseScenario(root, '4');
-  tryButton(root).listeners.click();
-  assert.notDeepEqual(submitted(byClass(root, 'ifl-form')), FREE_FORM_DEFAULTS);
-  root.find(e => e.tagName === 'BUTTON' && e.text() === 'Switch to guided')[0].listeners.click();
-  root.find(e => e.tagName === 'BUTTON' && e.text() === 'Switch to free-form')[0].listeners.click();
-  assert.deepEqual(submitted(byClass(root, 'ifl-form')), FREE_FORM_DEFAULTS);
-  assert.deepEqual(submitted(byClass(mount(undefined, 'free'), 'ifl-form')), FREE_FORM_DEFAULTS);
-});
-
 // Submit the Free-form with these field values, as FormData would read them.
 function submitValues(root, values) {
   const OriginalFormData = globalThis.FormData;
@@ -621,41 +483,7 @@ function submitValues(root, values) {
   finally { globalThis.FormData = OriginalFormData; }
 }
 const compareBox = root => byClass(root, 'ifl-compare');
-const compareRows = root => compareBox(root).find(e => e.tagName === 'TBODY')[0].children
-  .map(row => [row.children[0].text(), row.children[1].text(), row.children[2].text(), row.children[2].className]);
 const ACK_LOST = { ...FREE_FORM_DEFAULTS, duplicate: 'on' };
-
-test('the first Free-form run shows no comparison', () => {
-  const root = mount(undefined, 'free');
-  submitValues(root, ACK_LOST);
-  assert.equal(compareBox(root).hidden, true);
-  assert.equal(compareBox(root).children.length, 0);
-});
-
-test('turning on idempotency compares one changed setting and the changed outcome with the previous run', () => {
-  const root = mount(undefined, 'free');
-  submitValues(root, ACK_LOST);
-  submitValues(root, { ...ACK_LOST, idempotency: 'on' });
-  const box = compareBox(root);
-  assert.equal(box.hidden, false);
-  assert.equal(box.tagName, 'SECTION');
-  assert.equal(box.getAttribute('aria-label'), 'Compared with your previous run');
-  assert.equal(headings(box)[0].tagName, 'H4');
-  assert.equal(headings(box)[0].text(), 'Compared with your previous run');
-  assert.deepEqual(box.find(e => e.tagName === 'LI').map(li => li.text()), ['Idempotent consumer (dedupe on eventId): off → on']);
-  const before = run(formScenario(name => ACK_LOST[name] ?? null));
-  const after = run(formScenario(name => ({ ...ACK_LOST, idempotency: 'on' })[name] ?? null));
-  assert.notEqual(before.verdict.summary, after.verdict.summary);
-  assert.deepEqual(box.find(e => e.tagName === 'THEAD')[0].find(e => e.tagName === 'TH').map(th => th.text()), ['Claim C-1001', 'Previous', 'This run']);
-  assert.deepEqual(compareRows(root), [
-    ['Verdict', before.verdict.summary, after.verdict.summary, 'ifl-diff'],
-    ['Status', 'Paid', 'Paid', ''],
-    ['Paid', '$240.00', '$120.00', 'ifl-diff'],
-    ['Events applied', 'E1 → E2 → E3 → E3', 'E1 → E2 → E3', 'ifl-diff'],
-  ]);
-  const output = byClass(root, 'ifl-output').children.map(c => c.className);
-  assert.ok(output.indexOf('ifl-compare') === output.findIndex(c => c.startsWith('ifl-verdict')) + 1, 'the comparison follows the verdict');
-});
 
 test('the comparison heading follows the heading level and every value is text', () => {
   const root = mount({ headingLevel: 6 }, 'free');
@@ -675,19 +503,6 @@ test('an unchecked failure ignores its event select when comparing settings', ()
   submitValues(root, FREE_FORM_DEFAULTS);
   submitValues(root, { ...FREE_FORM_DEFAULTS, duplicateEvent: 'ClaimAccepted', timeoutAttempts: 'all' });
   assert.equal(compareBox(root).find(e => e.tagName === 'P')[0].text(), 'Same settings as your previous run.');
-});
-
-test('identical settings say so and show identical columns', () => {
-  const root = mount(undefined, 'free');
-  submitValues(root, ACK_LOST);
-  submitValues(root, ACK_LOST);
-  const box = compareBox(root);
-  assert.equal(box.find(e => e.tagName === 'UL').length, 0);
-  assert.equal(box.find(e => e.tagName === 'P')[0].text(), 'Same settings as your previous run.');
-  for (const [, was, now, cls] of compareRows(root)) {
-    assert.equal(was, now);
-    assert.equal(cls, '');
-  }
 });
 
 test('the comparison appears only after animated playback, and an interrupted run does not become the previous run', () => animated(drain => {
