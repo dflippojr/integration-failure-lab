@@ -54,3 +54,58 @@ test('live resize preserves partly configured form, focus and functional mode sw
   await expect(page.getByLabel('Downstream times out on', { exact: true })).toBeFocused();
   expect(errors).toEqual([]);
 });
+
+async function box(locator) {
+  await expect(locator).toBeVisible();
+  const bounds = await locator.boundingBox();
+  expect(bounds).not.toBeNull();
+  return bounds;
+}
+
+async function panes(page, sideBySide) {
+  const controls = await box(page.locator('.ifl-body'));
+  const output = await box(page.locator('.ifl-output'));
+  const bar = await box(page.locator('.ifl-bar'));
+  expect(bar.y + bar.height).toBeLessThanOrEqual(controls.y + 1);
+  if (sideBySide) {
+    expect(controls.x + controls.width).toBeLessThanOrEqual(output.x + 1);
+    expect(Math.abs(controls.y - output.y)).toBeLessThanOrEqual(1);
+    expect(bar.x).toBeLessThanOrEqual(controls.x + 1);
+    expect(bar.x + bar.width).toBeGreaterThanOrEqual(output.x + output.width - 1);
+  } else {
+    expect(output.y).toBeGreaterThanOrEqual(controls.y + controls.height);
+    expect(Math.abs(controls.x - output.x)).toBeLessThanOrEqual(1);
+  }
+}
+
+test('two-pane layout follows the lab width, keeps the picker single column and stacks for print', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/');
+  const picker = await box(page.locator('.ifl-body'));
+  const bar = await box(page.locator('.ifl-bar'));
+  expect(picker.y).toBeGreaterThanOrEqual(bar.y + bar.height);
+  expect(Math.abs(picker.x - bar.x)).toBeLessThanOrEqual(1);
+  expect(Math.abs(picker.width - bar.width)).toBeLessThanOrEqual(1);
+  await expect(page.locator('.ifl-output')).toBeHidden();
+
+  await page.getByRole('button', { name: /^Guided Walk/ }).click();
+  for (const mode of ['guided', 'free-form']) {
+    if (mode === 'free-form') await page.getByRole('button', { name: 'Switch to free-form', exact: true }).click();
+    await page.getByRole('button', { name: mode === 'guided' ? 'Run scenario' : 'Run', exact: true }).click();
+    await expect(page.locator('.ifl-final-state')).toBeVisible();
+    await panes(page, true);
+    // A narrow embedding must stack even while the viewport stays wide.
+    await page.locator('main').evaluate(main => { main.style.maxWidth = '768px'; });
+    await panes(page, false);
+    await page.locator('main').evaluate(main => { main.style.maxWidth = ''; });
+    for (const width of [768, 375]) {
+      await page.setViewportSize({ width, height: 900 });
+      await panes(page, false);
+    }
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await panes(page, true);
+    await page.emulateMedia({ media: 'print' });
+    await panes(page, false);
+    await page.emulateMedia({ media: 'screen' });
+  }
+});
