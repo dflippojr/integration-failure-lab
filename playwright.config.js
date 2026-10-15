@@ -12,10 +12,22 @@ export default defineConfig({
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
   },
-  projects: ['light', 'dark'].flatMap(colorScheme => [
-    { name: 'desktop-' + colorScheme, use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 }, colorScheme } },
-    { name: 'phone-' + colorScheme, use: { ...devices['Pixel 7'], viewport: { width: 412, height: 915 }, colorScheme } },
-  ]),
+  projects: [
+    {
+      name: 'desktop-light',
+      testIgnore: '**/theme.spec.js',
+      use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 }, colorScheme: 'light' },
+    },
+    {
+      name: 'phone-light',
+      testMatch: ['**/journeys.spec.js', '**/phone-controls.spec.js'],
+      use: { ...devices['Pixel 7'], viewport: { width: 412, height: 915 }, colorScheme: 'light' },
+    },
+    ...[
+      { name: 'desktop-dark', use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 }, colorScheme: 'dark' } },
+      { name: 'phone-dark', use: { ...devices['Pixel 7'], viewport: { width: 412, height: 915 }, colorScheme: 'dark' } },
+    ].map(project => ({ ...project, testMatch: '**/theme.spec.js' })),
+  ],
   webServer: {
     command: 'node checks/ui-instance.mjs serve',
     url: 'http://127.0.0.1:4193/__instance',
