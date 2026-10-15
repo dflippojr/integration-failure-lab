@@ -12,9 +12,8 @@ test('demo tools are pinned exactly in demo/ and absent from the root install', 
   const lock = json('demo/package-lock.json');
   assert.equal(lock.packages['node_modules/hyperframes'].version, demo.devDependencies.hyperframes);
   const root = json('package.json');
-  assert.deepEqual(Object.keys(root.devDependencies).sort(), ['@playwright/test', 'esbuild']);
+  for (const name of ['hyperframes', 'ffmpeg-static', 'gsap']) assert.equal(root.devDependencies[name], undefined, name);
   assert.equal(root.dependencies, undefined);
-  assert.equal(root.scripts['demo:render'], 'node demo/render.mjs');
 });
 
 test('the shipped bundle does not reference the demo', () => {

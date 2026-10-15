@@ -23,10 +23,7 @@ for (const s of scenarios) {
     for (const [k, v] of Object.entries(s.expect.record)) assert.equal(r.record[k], v, k);
     if (s.expect.dlq) assert.deepEqual(r.dlq.map(d => d.eventId), s.expect.dlq);
     if (s.expect.dropped) assert.deepEqual(r.dropped.map(d => d.eventId), s.expect.dropped);
-  });
-
-  test(`scenario ${s.id} is deterministic`, () => {
-    assert.deepEqual(run(s), run(s));
+    assert.deepEqual(r, run(s), 'a second run differs');
   });
 }
 

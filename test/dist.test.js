@@ -2,7 +2,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -74,68 +74,68 @@ test('every scenario has exactly one matching recording, and none are orphaned',
   assert.equal(new Set(recordedIds).size, recordedIds.length, 'Two recordings share a scenarioId.');
 });
 
+// Returns the message of every failing check for one recording (empty when it matches its scenario).
+// rec is an { file, data } entry of executed/; file names the scenario file.
+function recordingProblems(rec, scenario, file) {
+  const { record, dlq, dropped, buffered } = rec.data;
+  const verdict = judge(record, { dlq, dropped, buffered });
+  const context = `executed/${rec.file} vs scenarios/${file}`;
+  const expect = scenario.expect;
+  const problems = [];
+  const check = assertion => { try { assertion(); } catch (error) { problems.push(error.message); } };
+  for (const [key, value] of Object.entries(expect.record)) {
+    check(() => assert.deepEqual(record[key], value, `${context}: record.${key} differs from expect.record.${key}; re-record with the Java runner.`));
+  }
+  // An independent literal oracle catches order, duplicates and omissions even if judge changes.
+  if (expect.ok === true) {
+    check(() => assert.deepEqual(record.applied, ['E1', 'E2', 'E3'], `${context}: record.applied must be exactly [E1,E2,E3] for expect.ok=true.`));
+  }
+  if ('ok' in expect) {
+    check(() => assert.equal(verdict.ok, expect.ok, `${context}: judged ok differs from expect.ok; ${verdict.problems.join('; ')}`));
+  }
+  if ('visible' in expect) {
+    check(() => assert.equal(verdict.visible, expect.visible, `${context}: judged visible differs from expect.visible.`));
+  }
+  for (const [key, entries] of Object.entries({ dlq, dropped })) {
+    if (key in expect) {
+      check(() => assert.deepEqual(entries.map(entry => entry.eventId), expect[key], `${context}: ${key} differs from expect.${key}.`));
+    }
+  }
+  return problems;
+}
+
 for (const { file, data: scenario } of scenarios) {
   test(`recorded replay ${scenario.id} matches its scenario expectations`, () => {
     const rec = recordingByScenarioId.get(scenario.id);
     if (!rec) return; // reported by the coverage test
-    const { record, dlq, dropped, buffered } = rec.data;
-    const verdict = judge(record, { dlq, dropped, buffered });
-    const context = `executed/${rec.file} vs scenarios/${file}`;
-    const expect = scenario.expect;
-    for (const [key, value] of Object.entries(expect.record)) {
-      assert.deepEqual(record[key], value, `${context}: record.${key} differs from expect.record.${key}; re-record with the Java runner.`);
-    }
-    // An independent literal oracle catches order, duplicates and omissions even if judge changes.
-    if (expect.ok === true) {
-      assert.deepEqual(record.applied, ['E1', 'E2', 'E3'], `${context}: record.applied must be exactly [E1,E2,E3] for expect.ok=true.`);
-    }
-    if ('ok' in expect) {
-      assert.equal(verdict.ok, expect.ok, `${context}: judged ok differs from expect.ok; ${verdict.problems.join('; ')}`);
-    }
-    if ('visible' in expect) {
-      assert.equal(verdict.visible, expect.visible, `${context}: judged visible differs from expect.visible.`);
-    }
-    for (const [key, entries] of Object.entries({ dlq, dropped })) {
-      if (key in expect) {
-        assert.deepEqual(entries.map(entry => entry.eventId), expect[key], `${context}: ${key} differs from expect.${key}.`);
-      }
-    }
+    const problems = recordingProblems(rec, scenario, file);
+    assert.equal(problems.length, 0, problems.join('\n'));
   });
 }
 
-test('rebuilt dist rejects wrong-order, duplicate and missing applied events in 6b', () => {
-  const fixture = mkdtempSync(join(tmpdir(), 'ifl-bad-recording-'));
-  try {
-    for (const dir of ['scripts', 'engine', 'ui', 'scenarios', 'executed', 'dist']) {
-      cpSync(join(tmp, dir), join(fixture, dir), { recursive: true });
-    }
-    linkModules(fixture);
-    mkdirSync(join(fixture, 'test'));
-    cpSync(join(root, 'test', 'dist.test.js'), join(fixture, 'test', 'dist.test.js'));
-    cpSync(join(root, 'package.json'), join(fixture, 'package.json'));
-    const recordingFile = join(fixture, 'executed', '6b-poison-message-replay.json');
-    const recording = JSON.parse(readFileSync(recordingFile, 'utf8'));
-    const env = { ...process.env };
-    delete env.NODE_TEST_CONTEXT; // The child is a fresh test runner, not this runner's worker.
-    for (const applied of [['E1', 'E3', 'E2'], ['E1', 'E2', 'E3', 'E3'], ['E1', 'E3']]) {
-      // Change only the applied list: Paid, 12000 cents and an empty DLQ still match.
-      recording.record.applied = applied;
-      writeFileSync(recordingFile, JSON.stringify(recording));
-      const built = spawnSync(process.execPath, [join(fixture, 'scripts', 'build.mjs'), 'dist'], { encoding: 'utf8' });
-      assert.equal(built.status, 0, built.stderr);
-      const checked = spawnSync(process.execPath, [
-        '--test', '--test-concurrency=1', '--test-reporter=tap',
-        '--test-name-pattern=^(dist/|recorded replay )', join(fixture, 'test', 'dist.test.js'),
-      ], { encoding: 'utf8', env });
-      const output = checked.stdout + checked.stderr;
-      assert.equal(checked.status, 1, output);
-      assert.match(output, /ok \d+ - dist\/executed\.js is current/);
-      assert.match(output, /not ok \d+ - recorded replay 6b-poison-message-replay matches its scenario expectations/);
-      assert.ok(output.includes('executed/6b-poison-message-replay.json vs scenarios/6b-poison-message-replay.json: record.applied'), output);
-      assert.match(output, /# fail 1\b/);
-    }
-  } finally {
-    rmSync(fixture, { recursive: true, force: true });
+test('recorded replay rejects wrong-order, duplicate and missing applied events in 6b', () => {
+  const file = '6b-poison-message-replay.json';
+  const { data: scenario } = scenarios.find(s => s.file === file);
+  const rec = recordings.find(r => r.file === file);
+  const mutated = changes => ({ file, data: { ...rec.data, ...changes } });
+  assert.deepEqual(recordingProblems(rec, scenario, file), [], 'the committed recording passes');
+  const where = `executed/${file} vs scenarios/${file}: `;
+  // Change only the applied list: Paid, 12000 cents and an empty DLQ still match.
+  for (const applied of [['E1', 'E3', 'E2'], ['E1', 'E2', 'E3', 'E3'], ['E1', 'E3']]) {
+    const problems = recordingProblems(mutated({ record: { ...rec.data.record, applied } }), scenario, file);
+    const label = applied.join(',');
+    assert.ok(problems.some(m => m.startsWith(where + 'record.applied must be exactly [E1,E2,E3]')), `oracle rejects ${label}: ${problems}`);
+    assert.ok(problems.some(m => m.startsWith(where + 'judged ok differs')), `judge rejects ${label}: ${problems}`);
+    assert.equal(problems.length, 2, `only the applied checks fail for ${label}: ${problems}`);
+  }
+  // Every other field the scenario pins is checked as well.
+  for (const [field, changes] of [
+    ['expect.record.status', { record: { ...rec.data.record, status: 'Pending' } }],
+    ['expect.record.paidCents', { record: { ...rec.data.record, paidCents: 0 } }],
+    ['expect.dlq', { dlq: [{ eventId: 'E2' }] }],
+  ]) {
+    const problems = recordingProblems(mutated(changes), scenario, file);
+    assert.ok(problems.some(m => m.includes(`differs from ${field}`)), `${field} change is rejected: ${problems}`);
   }
 });
 

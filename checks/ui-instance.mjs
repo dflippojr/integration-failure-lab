@@ -54,7 +54,9 @@ if (command === 'stop') {
   });
   child.unref();
   let ready = false;
-  for (let i = 0; i < 100; i++) {
+  let exited = false;
+  child.once('exit', () => { exited = true; });
+  for (let i = 0; i < 100 && !exited; i++) {
     try { const live = await ownInstance(); if (live?.pid === child.pid) { ready = true; break; } } catch { /* wait for owned readiness */ }
     await new Promise(r => setTimeout(r, 50));
   }
@@ -70,13 +72,19 @@ if (command === 'stop') {
     res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self'; object-src 'none'");
     if (req.url === '/favicon.ico') { res.writeHead(204); res.end(); return; }
     if (req.url === '/__instance') { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ id, pid: process.pid, synthetic: true })); return; }
-    if (req.url === '/__stop' && req.method === 'POST' && req.headers['x-instance'] === id) { res.end('stopping'); server.close(() => { clean(); process.exit(0); }); return; }
+    if (req.url === '/__stop' && req.method === 'POST' && req.headers['x-instance'] === id) {
+      // Connection: close plus closeAllConnections: a keep-alive client would otherwise hold server.close() for the idle timeout.
+      res.setHeader('Connection', 'close');
+      res.end('stopping', () => server.closeAllConnections());
+      server.close(() => { clean(); process.exit(0); });
+      return;
+    }
     const name = req.url === '/' ? 'index.html' : req.url?.slice(1);
     if (!['index.html','lab.js','lab.css','engine.js','scenarios.js','executed.js','host.css'].includes(name)) { res.writeHead(404); res.end('Not found'); return; }
     res.setHeader('Content-Type', types[name.slice(name.lastIndexOf('.'))]);
     res.end(readFileSync(join(data, name)));
   });
-  const shutdown = () => server.close(() => { if (created) clean(); process.exit(0); });
+  const shutdown = () => { server.close(() => { if (created) clean(); process.exit(0); }); server.closeAllConnections(); };
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
   server.on('error', error => { if (created) clean(); console.error(error.message); process.exit(1); });
