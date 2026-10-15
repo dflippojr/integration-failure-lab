@@ -1,6 +1,6 @@
 # UI testing contract
 
-Contract version: 1
+Contract version: 2
 
 ## Scope and isolation
 
@@ -41,12 +41,23 @@ Run desktop 1440x900; iPhone SE 375x667, iPhone 15 393x852, Pixel 7 412x915, iPa
 
 ## Playwright and CI
 
-npm ci; npx playwright install chromium webkit; npm run test:ui -- --workers=1. Config: playwright.config.js. Specs: checks/ui/*.spec.js (outside Node's automatic test discovery). Tests use isolated browser contexts, local-only baseURL, reduced-motion and one worker, with desktop and genuine Pixel 7 phone projects in both themes. webServer runs the foreground serve command with reuseExistingServer:false and verified /__instance readiness. Reports: playwright-report/ and test-results/ (failure screenshots/traces, no authentication artifacts). Always run npm run ui:stop after tests, including failures/cancellation.
+npm ci; npx playwright install chromium webkit; npm run test:ui -- --workers=1. Config: playwright.config.js. Specs: checks/ui/*.spec.js (outside Node's automatic test discovery). Tests use isolated browser contexts, local-only baseURL, reduced-motion and one worker. Contract version 2 uses this default Chromium matrix:
+
+| Project | Coverage |
+| --- | --- |
+| desktop-light | All journey, layout and picker-count checks; phone touch geometry is skipped |
+| phone-light (genuine Pixel 7) | All journeys, picker count and phone touch geometry; no layout.spec.js viewport checks |
+| desktop-dark | One theme.spec.js smoke test: host token/media check, Guided and Free-form completion, no horizontal overflow |
+| phone-dark (genuine Pixel 7) | The same theme smoke test in a phone context |
+
+Viewport reflow, live resize and two-pane/print checks run only on desktop-light because they set their own viewport sizes. Phone touch geometry covers portrait, landscape and 320px, sweeping scenarios 1a (Try button), 6a (no Try button) and 4 (longest summary); all twelve scenarios still run through J2 on both light projects. Dark projects retain the host-token check and both run modes without repeating every colour-independent journey. The optional WebKit projects below retain their full spec coverage.
+
+webServer runs the foreground serve command with reuseExistingServer:false and verified /__instance readiness. Reports: playwright-report/ and test-results/ (failure screenshots/traces, no authentication artifacts). Always run npm run ui:stop after tests, including failures/cancellation.
 
 This repo is PUBLIC (verified via gh api on 2026-10-11). Existing workflows use ubuntu-latest. UI CI runs on GitHub-hosted ubuntu-latest only, installs locked dependencies/browser dependencies, runs tests with one worker, uploads reports, and invokes teardown with if:always(). Never use a self-hosted runner for this public code. Required checks also include npm test and java/mvnw verify -DforkCount=1.
 
 ## Teardown
 
-Phone control regressions: checks/ui/phone-controls.spec.js verifies enabled hit areas (including checkbox labels), all neighboring gaps, select font sizes, focus/selection and Run at phone portrait/landscape sizes and 320px. It also checks the picker count against the scenario manifest and guided progress. The default Chromium phone projects run these checks in CI. For the additional genuine iPhone SE (375x667) and iPhone 15 (393x852) WebKit contexts in both themes, install chromium and webkit and run `npm run test:ui -- --config=playwright.phone.config.js --workers=1`. This extends the default projects; teardown still applies after the run.
+Phone control regressions: checks/ui/phone-controls.spec.js verifies enabled hit areas (including checkbox labels), all neighboring gaps, select font sizes, focus/selection and Run at phone portrait/landscape sizes and 320px. It also checks the picker count against the scenario manifest and guided progress. The default Chromium phone-light project runs these checks in CI; phone-dark runs the theme smoke test. For the additional genuine iPhone SE (375x667) and iPhone 15 (393x852) WebKit contexts in both themes, install chromium and webkit and run `npm run test:ui -- --config=playwright.phone.config.js --workers=1`. This extends the default projects; teardown still applies after the run.
 
 From the repository root run **node checks/ui-instance.mjs stop**. It verifies the saved id/PID against /__instance before requesting its own shutdown; never kills a mismatching/unowned server. It removes only the known flat disposable files and directory; safe to repeat and after partial startup. If a saved process no longer exists it removes stale disposable files. Preserve output/ui-pass evidence and reports. Verify .ui-testing absent, owned PID exited and port 4193 unbound. Close owned playwright-cli sessions and delete their session data. Run close-all only when the inventory contains no other worker sessions; otherwise close each owned name and record the exception.

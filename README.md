@@ -75,7 +75,7 @@ See [the UI testing contract](docs/ui-testing.md) for isolated startup, syntheti
 
 GitHub Actions runs three workflows on pushes and pull requests:
 
-- `.github/workflows/ui.yml`: isolated desktop/Pixel 7 Playwright journeys in light/dark, breakpoint and live-resize checks on GitHub-hosted runners with one worker.
+- `.github/workflows/ui.yml`: isolated desktop/Pixel 7 Playwright journeys in light, a host-token and Guided/Free-form smoke test on both dark projects, plus desktop-light breakpoint and live-resize checks on GitHub-hosted runners with one worker.
 - `.github/workflows/test.yml`: `npm test` (Node 22) and `./mvnw -B verify` in `java/` (Java 21).
 - `.github/workflows/sonar.yml`: SonarCloud analysis with coverage (lcov from the Node test runner, JaCoCo from the Java module). It runs on pushes to `main` and on pull requests from this repo, and fails when the quality gate fails. Project keys are in `sonar-project.properties`.
 

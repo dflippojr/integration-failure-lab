@@ -49,7 +49,9 @@ test('phone hit areas, gaps and select text survive rotation and narrow forms', 
     await expect(page.locator('#lab')).toHaveCSS('--ifl-paper', testInfo.project.use.colorScheme === 'dark' ? '#18251f' : '#f6f3eb');
     await touchGeometry(page);
     await page.getByRole('button', { name: /^Guided Walk/ }).click();
-    for (const scenario of SCENARIOS) {
+    // Cover the Try button, its absence, and the longest scenario summary.
+    for (const id of ['1a', '6a', '4']) {
+      const scenario = SCENARIOS.find(scenario => scenario.id.startsWith(id + '-'));
       await page.getByRole('button', { name: scenario.id.split('-')[0] + ': ' + scenario.title, exact: true }).click();
       await touchGeometry(page);
     }
