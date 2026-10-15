@@ -1,6 +1,7 @@
 package dev.dflippojr.lab;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -11,11 +12,16 @@ import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.SpringApplication;
 
-/** Each sample starts a fresh JVM and server; opt into more with -Dlab.stress.runs=30. */
+/**
+ * Opt-in soak test: skipped unless {@code -Dlab.stress.runs} is set explicitly (for example {@code -Dlab.stress.runs=30}).
+ * Each sample starts a fresh JVM and server and runs {@code 1a-transient-timeout} once over real HTTP. The deterministic
+ * check for the cold-first-request ordering bug is {@code ScenarioRunnerOrderingTest}, so CI does not run this class.
+ */
 class ScenarioRunnerStressTest {
 
     @Test
     void transientTimeoutKeepsInitialEventsInOrder() throws Exception {
+        assumeTrue(System.getProperty("lab.stress.runs") != null, "opt in with -Dlab.stress.runs=<samples>");
         int runs = Integer.getInteger("lab.stress.runs", 1);
         assertThat(runs).as("stress runs").isPositive();
         for (int i = 1; i <= runs; i++) {
