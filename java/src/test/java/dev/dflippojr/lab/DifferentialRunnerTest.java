@@ -11,11 +11,14 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.annotation.DirtiesContext;
 
 import tools.jackson.databind.ObjectMapper;
 
 /** The batch mode behind scripts/differential.mjs: combinations in, normalised outcomes out. */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+// Leaves the shared store holding a run's events; ManualEventTest needs a context no run has touched.
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class DifferentialRunnerTest {
 
     @Autowired
