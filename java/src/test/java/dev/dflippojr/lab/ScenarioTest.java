@@ -3,6 +3,7 @@ package dev.dflippojr.lab;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.util.HashMap;
 import java.util.Map;
 import java.util.stream.Stream;
 
@@ -53,6 +54,25 @@ class ScenarioTest {
                 "failures", Map.of("poison", Map.of("event", "ClaimPaid"), "schemaChange", Map.of("event", "ClaimAccepted"))));
         assertThat(scenario.failures().poisonEvent()).isEqualTo("ClaimPaid");
         assertThat(scenario.failures().schemaChangeEvent()).isEqualTo("ClaimAccepted");
+    }
+
+    static Stream<Arguments> invalidIds() {
+        return Stream.of(
+                Arguments.of("../x", "Scenario ../x"),
+                Arguments.of("a/b", "Scenario a/b"),
+                Arguments.of("A1", "Scenario A1"),
+                Arguments.of(null, "Scenario null"));
+    }
+
+    @ParameterizedTest(name = "{1}")
+    @MethodSource("invalidIds")
+    void idsThatCannotNameAnExportFileAreRejectedAtLoad(String id, String prefix) {
+        // The id becomes <id>.json in the export directory, so "../x" used to write outside it.
+        Map<String, Object> json = new HashMap<>();
+        if (id != null) json.put("id", id);
+        assertThatThrownBy(() -> Scenario.fromMap(json))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage(prefix + ": id must be lowercase letters, digits and single hyphens");
     }
 
     static Stream<Arguments> backoffSchedules() {
