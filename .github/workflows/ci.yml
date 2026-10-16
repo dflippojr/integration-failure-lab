@@ -13,8 +13,10 @@ jobs:
         with:
           node-version: 22
       - run: npm ci
-      # npm test with coverage floors (see test:coverage in package.json): lines 97, branches 92,
-      # set 1 point below the measured 98.23 / 93.75 on 2026-10-16, rounded down. Floors only ever go up.
+      # npm test with coverage floors (see test:coverage in package.json): lines 97, branches 92.
+      # Measured 2026-10-16: 99.21 / 96.24 here on Node 22, 98.23 / 93.75 locally on Node 24, which counts
+      # branches differently. Floors sit 1 point below the lower, rounded down, so npm run ci:local passes
+      # on both. Floors only ever go up.
       - run: npm run test:coverage
   java:
     runs-on: ubuntu-latest
