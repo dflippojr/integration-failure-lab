@@ -105,6 +105,10 @@ class LabPropertiesTest {
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> new LabProperties(null, "export", 0, 0, null, 0, 0, "in.json", "out.json", 0))
                 .withMessageContaining("set one");
+        assertThat(new LabProperties(null, null, 0, 0, null, 0, 0, null, null, 0).differentialWorkers()).isEqualTo(1);
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> new LabProperties(null, null, 0, 0, null, 0, 0, null, null, 5))
+                .withMessageContaining("between 1 and 4");
     }
 
     @Configuration(proxyBeanMethods = false)

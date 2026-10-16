@@ -4,9 +4,10 @@
 //
 //   npm run differential                      all combinations
 //   npm run differential -- --only <id> ...   just these (the repro line each mismatch prints)
-//   npm run differential -- --jar <path>      a different runner jar
 //   npm run differential -- --workers <1-4>   Java combinations run at a time in the one JVM (default 4)
 //   npm run differential -- --scale <f>       Java speed as a fraction of the engine's virtual clock (default 0.25)
+//
+// Files go to java/target/differential/: combinations.json, engine-outcomes.json and java-outcomes.json.
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -18,6 +19,8 @@ import { TIMING } from '../engine/engine.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const KNOWN_PATH = join(root, 'test', 'differential', 'known.json');
+const JAR = join(root, 'java', 'target', 'integration-failure-lab-0.1.0-SNAPSHOT.jar');
+const OUT_DIR = join(root, 'java', 'target', 'differential');
 export const MAX_KNOWN = 3;
 // The Java runner's defaults are not proportional to the engine's virtual clock (its replay comes 1.3 ack
 // timeouts after parking, the engine's 2.5), which reorders outcomes on its own. The differential run gives
@@ -68,52 +71,63 @@ export function report({ explained, unexplained, stale }, total, write = console
   return unexplained.length === 0 && stale.length === 0;
 }
 
-function runJava(jar, inFile, outFile, workers, scale) {
-  const javaHome = process.env.JAVA_HOME;
-  const java = javaHome ? join(javaHome, 'bin', 'java') : 'java';
-  const result = spawnSync(java, ['-jar', jar, `--lab.differential-in=${inFile}`, `--lab.differential-out=${outFile}`,
-    `--lab.differential-workers=${workers}`, ...javaTimingArgs(scale)],
-    { cwd: join(root, 'java'), stdio: 'inherit' });
-  if (result.error) throw result.error;
-  if (result.status !== 0) throw new Error(`Java runner exited with ${result.status}`);
-  return new Map(JSON.parse(readFileSync(outFile, 'utf8')).map(e => [e.id, e.outcome]));
-}
-
-function main() {
+// Command-line options, validated: ids must name generated combinations, and only numbers reach the JVM.
+export function parseOptions(args) {
   const { values } = parseArgs({
+    args,
     options: {
-      jar: { type: 'string', default: join(root, 'java', 'target', 'integration-failure-lab-0.1.0-SNAPSHOT.jar') },
       only: { type: 'string', multiple: true },
-      out: { type: 'string', default: join(root, 'java', 'target', 'differential') },
       workers: { type: 'string', default: '4' },
       scale: { type: 'string', default: String(TIME_SCALE) },
     },
   });
-  const known = loadKnown();
+  const workers = Number(values.workers);
+  if (!Number.isInteger(workers) || workers < 1 || workers > 4) throw new Error(`--workers must be 1-4, not ${values.workers}`);
+  const scale = Number(values.scale);
+  if (!(scale > 0 && scale <= 1)) throw new Error(`--scale must be a number in (0, 1], not ${values.scale}`);
+  return { only: values.only, workers, scale };
+}
+
+// Runs the runner jar's batch mode: combinations in inFile, outcomes to outFile.
+function runJar(inFile, outFile, args) {
+  if (!existsSync(JAR)) throw new Error(`No runner jar at ${JAR}; build it with: cd java && ./mvnw -B package -DskipTests`);
+  const javaHome = process.env.JAVA_HOME;
+  const java = javaHome ? join(javaHome, 'bin', 'java') : 'java';
+  const result = spawnSync(java, ['-jar', JAR, `--lab.differential-in=${inFile}`, `--lab.differential-out=${outFile}`, ...args],
+    { cwd: join(root, 'java'), stdio: 'inherit' });
+  if (result.error) throw result.error;
+  if (result.status !== 0) throw new Error(`Java runner exited with ${result.status}`);
+}
+
+// Runs the selected combinations on both sides and reports; true when nothing is unexplained or stale.
+export function differential({ only, workers = 4, scale = TIME_SCALE } = {},
+  { runJava = runJar, out = OUT_DIR, known = loadKnown(), write = console.log } = {}) {
   const all = combinations();
   let selected = all;
-  if (values.only) {
-    const wanted = new Set(values.only);
+  if (only) {
+    const wanted = new Set(only);
     selected = all.filter(c => wanted.has(c.id));
     const missing = [...wanted].filter(id => !selected.some(c => c.id === id));
     if (missing.length) throw new Error(`Unknown combination id: ${missing.join(', ')}`);
   }
-  console.log(`Differential test: ${selected.length} of ${all.length} combinations; Java timings ${javaTimingArgs(Number(values.scale)).join(' ')}`);
-  if (!existsSync(values.jar)) throw new Error(`No runner jar at ${values.jar}; build it with: cd java && ./mvnw -B package -DskipTests`);
+  const javaArgs = [`--lab.differential-workers=${workers}`, ...javaTimingArgs(scale)];
+  write(`Differential test: ${selected.length} of ${all.length} combinations; Java ${javaArgs.join(' ')}`);
 
-  const out = resolve(values.out);
   mkdirSync(out, { recursive: true });
   const inFile = join(out, 'combinations.json');
   const outFile = join(out, 'java-outcomes.json');
   writeFileSync(inFile, JSON.stringify(selected, null, 2));
   const engine = new Map(selected.map(c => [c.id, engineOutcome(c)]));
   writeFileSync(join(out, 'engine-outcomes.json'), JSON.stringify(selected.map(c => ({ id: c.id, outcome: engine.get(c.id) })), null, 2));
-  const java = runJava(values.jar, inFile, outFile, values.workers, Number(values.scale));
+  runJava(inFile, outFile, javaArgs);
+  const java = new Map(JSON.parse(readFileSync(outFile, 'utf8')).map(e => [e.id, e.outcome]));
 
   const result = compare(selected, engine, java, known);
   // A subset run cannot tell whether a known divergence is stale.
-  if (values.only) result.stale = [];
-  if (!report(result, selected.length)) process.exitCode = 1;
+  if (only) result.stale = [];
+  return report(result, selected.length, write);
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  if (!differential(parseOptions(process.argv.slice(2)))) process.exitCode = 1;
+}

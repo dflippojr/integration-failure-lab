@@ -1,8 +1,11 @@
-import { test } from 'node:test';
+import { test, describe, before, after } from 'node:test';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import assert from 'node:assert/strict';
 import { combinations, failureSettings, safeguardToggles, EVENT_TYPES } from './differential/combos.mjs';
 import { engineOutcome, normalise, compare, canonical } from './differential/outcome.mjs';
-import { loadKnown, report, javaTimingArgs, MAX_KNOWN } from '../scripts/differential.mjs';
+import { loadKnown, report, javaTimingArgs, parseOptions, differential, MAX_KNOWN } from '../scripts/differential.mjs';
 import { run, DEFAULT_SAFEGUARDS, TIMING } from '../engine/engine.js';
 
 const all = combinations();
@@ -83,4 +86,69 @@ test(`known.json lists at most ${MAX_KNOWN} divergences, each with an issue link
   const known = loadKnown();
   assert.ok(known.length <= MAX_KNOWN);
   for (const k of known) for (const id of k.combinations) assert.ok(byId.has(id), `${k.issue} lists unknown combination ${id}`);
+});
+
+test('options are validated before anything reaches the JVM', () => {
+  assert.deepEqual(parseOptions([]), { only: undefined, workers: 4, scale: 0.25 });
+  assert.deepEqual(parseOptions(['--only', 'a', '--only', 'b', '--workers', '2', '--scale', '0.5']), { only: ['a', 'b'], workers: 2, scale: 0.5 });
+  assert.throws(() => parseOptions(['--workers', '5']), /--workers must be 1-4/);
+  assert.throws(() => parseOptions(['--workers', '2;rm']), /--workers must be 1-4/);
+  assert.throws(() => parseOptions(['--scale', '0']), /--scale must be/);
+  assert.throws(() => parseOptions(['--jar', 'x']), /Unknown option/);
+});
+
+describe('a differential run', () => {
+  let out;
+  before(() => { out = mkdtempSync(join(tmpdir(), 'ifl-differential-')); });
+  after(() => rmSync(out, { recursive: true, force: true }));
+
+  // Stands in for the jar: answers with the engine's own outcomes, after letting the test tamper with them.
+  const fakeJava = (tamper = o => o) => (inFile, outFile, args) => {
+    assert.deepEqual(args, ['--lab.differential-workers=2', ...javaTimingArgs(0.25)]);
+    const combos = JSON.parse(readFileSync(inFile, 'utf8'));
+    writeFileSync(outFile, JSON.stringify(combos.map(c => ({ id: c.id, outcome: tamper(engineOutcome(c), c) }))));
+  };
+  const run2 = (options, runJava, known = []) => {
+    const lines = [];
+    const ok = differential({ workers: 2, ...options }, { runJava, out, known, write: line => lines.push(line) });
+    return { ok, text: lines.join('\n') };
+  };
+  const [first, second] = all;
+
+  test('passes when both sides agree', () => {
+    const { ok, text } = run2({}, fakeJava());
+    assert.equal(ok, true);
+    assert.ok(text.includes(`${all.length} combinations: ${all.length} agree, 0 known divergences, 0 unexplained mismatches.`), text);
+    assert.equal(JSON.parse(readFileSync(join(out, 'engine-outcomes.json'), 'utf8')).length, all.length);
+  });
+
+  test('fails on a mismatch and prints its repro', () => {
+    const { ok, text } = run2({}, fakeJava((o, c) => (c.id === second.id ? { ...o, dlq: ['E9'] } : o)));
+    assert.equal(ok, false);
+    assert.ok(text.includes(`MISMATCH ${second.id} (differs in: dlq)`), text);
+  });
+
+  test('fails on a known divergence that has gone, unless only a subset ran', () => {
+    const known = [{ issue: 'https://github.com/o/r/issues/1', combinations: [first.id] }];
+    assert.equal(run2({}, fakeJava(), known).ok, false);
+    const subset = run2({ only: [first.id] }, fakeJava(), known);
+    assert.equal(subset.ok, true);
+    assert.ok(subset.text.startsWith(`Differential test: 1 of ${all.length} combinations`), subset.text);
+    assert.throws(() => run2({ only: ['nope'] }, fakeJava()), /Unknown combination id: nope/);
+  });
+});
+
+test('known.json is refused when it grows past the limit or loses its links', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ifl-known-'));
+  const file = join(dir, 'known.json');
+  const entry = { issue: 'https://github.com/o/r/issues/1', combinations: ['x'] };
+  try {
+    const refuses = (value, message) => { writeFileSync(file, JSON.stringify(value)); assert.throws(() => loadKnown(file), message); };
+    refuses({}, /must hold an array/);
+    refuses([entry, entry, entry, entry], /at most 3 are allowed/);
+    refuses([{ ...entry, issue: 'see #1' }], /without an issue link/);
+    refuses([{ ...entry, combinations: [] }], /lists no combinations/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

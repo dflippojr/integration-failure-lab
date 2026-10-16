@@ -64,7 +64,6 @@ public class DifferentialRunner implements CommandLineRunner {
         Map<String, Object>[] outcomes = new Map[combinations.size()];
         long start = System.nanoTime();
         List<ConfigurableApplicationContext> extra = new ArrayList<>();
-        ExecutorService pool = Executors.newFixedThreadPool(workers);
         try {
             List<ScenarioRunner> runners = new ArrayList<>(List.of(runner));
             for (int i = 1; i < workers; i++) {
@@ -73,7 +72,21 @@ public class DifferentialRunner implements CommandLineRunner {
                 extra.add(worker);
                 runners.add(worker.getBean(ScenarioRunner.class));
             }
-            AtomicInteger next = new AtomicInteger();
+            runAll(runners, combinations, outcomes);
+        } finally {
+            extra.forEach(ConfigurableApplicationContext::close);
+        }
+        Path dir = out.toAbsolutePath().getParent();
+        files.write(dir, out.getFileName().toString(), Arrays.asList(outcomes));
+        log.info("Ran {} combinations on {} workers in {} s -> {}", outcomes.length, workers,
+                (System.nanoTime() - start) / 1_000_000_000, out);
+    }
+
+    /** Each runner takes the next combination until none is left; the first failure stops the others. */
+    private static void runAll(List<ScenarioRunner> runners, List<Map<String, Object>> combinations,
+                               Map<String, Object>[] outcomes) throws Exception {
+        AtomicInteger next = new AtomicInteger();
+        try (ExecutorService pool = Executors.newFixedThreadPool(runners.size())) {
             List<Future<Void>> running = new ArrayList<>();
             for (ScenarioRunner each : runners) {
                 running.add(pool.submit(() -> {
@@ -90,17 +103,11 @@ public class DifferentialRunner implements CommandLineRunner {
                 try {
                     worker.get();
                 } catch (ExecutionException failed) {
+                    pool.shutdownNow();
                     throw failed.getCause() instanceof Exception cause ? cause : failed;
                 }
             }
-        } finally {
-            pool.shutdownNow();
-            extra.forEach(ConfigurableApplicationContext::close);
         }
-        Path dir = out.toAbsolutePath().getParent();
-        files.write(dir, out.getFileName().toString(), Arrays.asList(outcomes));
-        log.info("Ran {} combinations on {} workers in {} s -> {}", outcomes.length, workers,
-                (System.nanoTime() - start) / 1_000_000_000, out);
     }
 
     /** The extra workers run with this context's timings, and without a batch of their own. */
