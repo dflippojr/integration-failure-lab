@@ -5,13 +5,5 @@
     "combinations": [
       "timeout-accepted-first+ackloss-submitted+reorder-accepted__retry0+backoff-none+ordering+replayAfterFix"
     ]
-  },
-  {
-    "issue": "https://github.com/dflippojr/integration-failure-lab/issues/104",
-    "summary": "Out-of-order delay: the engine delays arrival with the ack timeout already running; Java delays the send, so its timeout starts later.",
-    "combinations": [
-      "timeout-accepted-first+ackloss-submitted+reorder-submitted__retry5+schemaValidation+replayAfterFix",
-      "timeout-submitted-first+ackloss-paid+reorder-submitted__retry0+backoff-fixed+idempotency+ordering+no-deadLetter+replayAfterFix"
-    ]
   }
 ]
