@@ -12,7 +12,7 @@ import java.util.regex.Pattern;
 public record Scenario(String id, int order, String title, Failures failures, Safeguards safeguards, Map<String, Object> expect) {
 
     // The id names the exported trace file, so it must not carry path separators or "..".
-    static final Pattern ID = Pattern.compile("^[a-z0-9]+(-[a-z0-9]+)*$");
+    static final Pattern ID_SHAPE = Pattern.compile("[a-z0-9]++(?:-[a-z0-9]++)*+");
 
     public record Failures(String timeoutEvent, Set<Integer> timeoutAttempts, boolean timeoutAll,
                            String duplicateEvent, String reorderEvent, String schemaChangeEvent,
@@ -63,7 +63,7 @@ public record Scenario(String id, int order, String title, Failures failures, Sa
     @SuppressWarnings("unchecked")
     public static Scenario fromMap(Map<String, Object> json) {
         Object id = json.get("id");
-        if (!(id instanceof String s && ID.matcher(s).matches())) {
+        if (!(id instanceof String s && ID_SHAPE.matcher(s).matches())) {
             throw new IllegalArgumentException("Scenario " + id + ": id must be lowercase letters, digits and single hyphens");
         }
 
