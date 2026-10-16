@@ -112,7 +112,7 @@ async function animated(fn) {
   const originalClear = globalThis.clearInterval;
   const timers = new Map();
   let id = 0;
-  window.matchMedia = () => ({ matches: false });
+  globalThis.window.matchMedia = () => ({ matches: false });
   globalThis.setInterval = callback => { timers.set(++id, callback); return id; };
   globalThis.clearInterval = timer => timers.delete(timer);
   const drain = () => {
@@ -125,7 +125,7 @@ async function animated(fn) {
   finally {
     globalThis.setInterval = originalSet;
     globalThis.clearInterval = originalClear;
-    window.matchMedia = () => ({ matches: true });
+    globalThis.window.matchMedia = () => ({ matches: true });
   }
 }
 
