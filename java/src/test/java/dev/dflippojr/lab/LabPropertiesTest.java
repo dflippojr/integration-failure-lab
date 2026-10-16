@@ -62,7 +62,7 @@ class LabPropertiesTest {
     @MethodSource("invalidOverrides")
     void incompleteOrNullEmissionTimesFailAtConstruction(List<Long> times) {
         assertThatIllegalArgumentException()
-                .isThrownBy(() -> new LabProperties(null, null, 0, 0, times, 0, 0))
+                .isThrownBy(() -> new LabProperties(null, null, 0, 0, times, 0, 0, null, null, 0))
                 .withMessageContaining("lab.send-at-ms")
                 .withMessageContaining("exactly three non-null emission times");
     }
@@ -83,12 +83,28 @@ class LabPropertiesTest {
 
     @Test
     void emptyOverrideUsesDefaultsAndValidOverrideIsCopied() {
-        assertThat(new LabProperties(null, null, 0, 0, List.of(), 0, 0).sendAtMs())
+        assertThat(new LabProperties(null, null, 0, 0, List.of(), 0, 0, null, null, 0).sendAtMs())
                 .containsExactly(0L, 40L, 80L);
         List<Long> times = new ArrayList<>(List.of(10L, 50L, 90L));
-        LabProperties properties = new LabProperties(null, null, 0, 0, times, 0, 0);
+        LabProperties properties = new LabProperties(null, null, 0, 0, times, 0, 0, null, null, 0);
         times.clear();
         assertThat(properties.sendAtMs()).containsExactly(10L, 50L, 90L);
+    }
+
+    @Test
+    void differentialFilesBindTogetherAndExcludeTheExport() {
+        contextRunner.withPropertyValues("lab.differential-in=in.json", "lab.differential-out=out.json").run(context -> {
+            assertThat(context).hasNotFailed();
+            LabProperties properties = context.getBean(LabProperties.class);
+            assertThat(properties.differentialIn()).isEqualTo("in.json");
+            assertThat(properties.differentialOut()).isEqualTo("out.json");
+        });
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> new LabProperties(null, null, 0, 0, null, 0, 0, "in.json", null, 0))
+                .withMessageContaining("must be set together");
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> new LabProperties(null, "export", 0, 0, null, 0, 0, "in.json", "out.json", 0))
+                .withMessageContaining("set one");
     }
 
     @Configuration(proxyBeanMethods = false)
