@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
-import { run, backoffMs, judge, suggestSafeguards, SAFEGUARD_CHANGES, EXPECTED_RECORD } from '../engine/engine.js';
+import { run, backoffMs, judge, suggestSafeguards, SAFEGUARD_CHANGES, EXPECTED_RECORD, TIMING } from '../engine/engine.js';
 
 const dir = new URL('../scenarios/', import.meta.url);
 const scenarios = readdirSync(dir)
@@ -111,6 +111,43 @@ test('a schema-changed ClaimPaid is replayed with the producer fix, matching the
   assert.deepEqual(r.dlq, []);
   assert.ok(kinds(r, 'E3').indexOf('replay') > kinds(r, 'E3').indexOf('dead-letter'));
   assert.equal(r.verdict.ok, true);
+});
+
+// #99: each DLQ entry is replayed replayAfterMs after it was parked, matching the Java runner.
+const parkAndReplayTimes = r => {
+  const at = kind => Object.fromEntries(r.trace.filter(t => t.kind === kind).reverse().map(t => [t.eventId, t.t]));
+  const parked = at('dead-letter');
+  const replayed = at('replay');
+  return { parked, replayed };
+};
+
+test('two dead-lettered events are each replayed replayAfterMs after their own parking', () => {
+  const r = run({
+    id: 'lead1-drain',
+    failures: { timeout: { event: 'ClaimAccepted', attempts: 'all' }, poison: { event: 'ClaimPaid' } },
+    safeguards: { retryLimit: 0, replayAfterFix: true },
+  });
+  const { parked, replayed } = parkAndReplayTimes(r);
+  assert.deepEqual(Object.keys(replayed).sort(), ['E2', 'E3']);
+  for (const id of ['E2', 'E3']) assert.equal(replayed[id] - parked[id], TIMING.replayAfterMs, `${id} replay delay`);
+  assert.deepEqual(r.trace.filter(t => t.kind === 'replay').map(t => t.eventId), ['E3', 'E2']);
+  assert.deepEqual(r.dlq.map(e => e.eventId), ['E2']);
+  assert.deepEqual(r.record, { status: 'Paid', paidCents: 12000, applied: ['E1', 'E3'] });
+});
+
+test('per-entry replay keeps the DLQ in parking order when both replays time out again', () => {
+  const r = run({
+    id: 'x3-replay-order',
+    failures: {
+      timeout: { event: 'ClaimAccepted', attempts: [1] },
+      duplicate: { event: 'ClaimSubmitted' },
+      reorder: { event: 'ClaimAccepted', delayMs: 500 },
+    },
+    safeguards: { retryLimit: 0, backoff: 'none', ordering: true, replayAfterFix: true },
+  });
+  const { parked, replayed } = parkAndReplayTimes(r);
+  for (const id of ['E1', 'E2']) assert.equal(replayed[id] - parked[id], TIMING.replayAfterMs, `${id} replay delay`);
+  assert.deepEqual(r.dlq.map(e => e.eventId), ['E1', 'E2']);
 });
 
 test('poison and a schema change on the same event are rejected when the scenario runs', () => {
