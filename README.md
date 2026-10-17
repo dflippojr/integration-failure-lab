@@ -69,7 +69,7 @@ HyperFrames, FFmpeg (`ffmpeg-static`) and GSAP are pinned in `demo/package.json`
 
 ### Disposable UI testing
 
-See [the UI testing contract](docs/ui-testing.md) for isolated startup, synthetic journeys, device coverage and cleanup. Run `npm ci`, then `npx playwright install chromium`, and `npm run test:ui -- --workers=1`. The test runner owns its loopback server; finish with `npm run ui:stop`, including after failures. For manual exploration use `npm run ui:start` and the printed local URL. No backend or credentials are required.
+See [the UI testing contract](docs/ui-testing.md) for isolated startup, synthetic journeys, device coverage and cleanup. Run `npm ci`, then `npx playwright install chromium webkit`, and `npm run test:ui -- --workers=1`. The test runner owns its loopback server; finish with `npm run ui:stop`, including after failures. For manual exploration use `npm run ui:start` and the printed local URL. No backend or credentials are required.
 
 ### CI
 

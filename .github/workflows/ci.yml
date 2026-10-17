@@ -45,7 +45,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npx playwright install --with-deps chromium
+      - run: npx playwright install --with-deps chromium webkit
       - run: npm run test:ui -- --workers=1
       - name: Stop disposable instance (also after failures)
         if: always()
