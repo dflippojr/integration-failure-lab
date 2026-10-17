@@ -77,15 +77,21 @@ See [the UI testing contract](docs/ui-testing.md) for isolated startup, syntheti
 
 ### CI
 
-GitHub Actions runs three workflows on pushes and pull requests:
+Run the whole gate locally with `npm run ci:local` (see [AGENTS.md](AGENTS.md)).
 
-- `.github/workflows/ui.yml`: isolated desktop/Pixel 7 Playwright journeys in light, a host-token and Guided/Free-form smoke test on both dark projects, plus desktop-light breakpoint and live-resize checks on GitHub-hosted runners with one worker.
-- `.github/workflows/test.yml`: `npm test` (Node 22), `./mvnw -B verify` in `java/` (Java 21), and the `differential` job (`npm run differential` against a freshly built runner jar).
-- `.github/workflows/sonar.yml`: SonarCloud analysis with coverage (lcov from the Node test runner, JaCoCo from the Java module). It runs on pushes to `main` and on pull requests from this repo, and fails when the quality gate fails. Project keys are in `sonar-project.properties`.
+GitHub Actions runs two workflows on pushes and pull requests:
+
+- `.github/workflows/ci.yml`: four jobs and a `gate` job, which is the one check to require.
+  - `engine`: `npm run test:coverage` (Node 22), which is `npm test` with line and branch coverage floors.
+  - `java`: `./mvnw -B verify` in `java/` (Java 21), including a JaCoCo line-coverage floor.
+  - `differential`: `npm run differential` against a freshly built runner jar (see [Differential testing](#differential-testing)).
+  - `playwright`: isolated desktop/Pixel 7 Playwright journeys in light, a host-token and Guided/Free-form smoke test on both dark projects, plus desktop-light breakpoint and live-resize checks on GitHub-hosted runners with one worker.
+  - `gate`: runs after the other four even when one fails, and passes only when all four succeed.
+- `.github/workflows/sonar.yml`: SonarCloud analysis with coverage (lcov from the Node test runner, JaCoCo from the Java module). It runs on pushes to `main` and on pull requests from this repo, and fails when the quality gate fails. A newer push cancels a PR's running analysis, but runs on `main` are never cancelled. Project keys are in `sonar-project.properties`.
 
 Dependabot checks weekly for Maven updates in `/java`, npm updates at `/`, and GitHub Actions updates at `/`, as configured in `.github/dependabot.yml`. The root npm entry covers the Playwright test dependency.
 
-SonarCloud requires an authorized analysis token named `SONAR_TOKEN` in repository **Actions** secrets for ordinary runs and separately in **Dependabot** secrets for Dependabot PRs (Settings → Secrets and variables → Dependabot → New repository secret). GitHub supplies the appropriate secret store through the same workflow reference; Actions secrets are unavailable to Dependabot-triggered runs. Fork PRs remain excluded. If the token is absent, the SonarCloud workflow emits a notice and a job summary and skips analysis cleanly; this is not a successful analysis or a passing quality gate. The separate test workflow still runs.
+SonarCloud requires an authorized analysis token named `SONAR_TOKEN` in repository **Actions** secrets for ordinary runs and separately in **Dependabot** secrets for Dependabot PRs (Settings → Secrets and variables → Dependabot → New repository secret). GitHub supplies the appropriate secret store through the same workflow reference; Actions secrets are unavailable to Dependabot-triggered runs. Fork PRs remain excluded. If the token is absent, the SonarCloud workflow emits a notice and a job summary and skips analysis cleanly; this is not a successful analysis or a passing quality gate. The `ci` workflow still runs.
 
 Owner verification: ensure the configured SonarCloud project exists with automatic analysis disabled, save the authorized Dependabot `SONAR_TOKEN`, and verify analysis on a `main` push, an ordinary same-repository PR, and at least one real Dependabot PR. Record the workflow and SonarCloud result links for the PR's head commit in issue #16; a missing-token notice does not satisfy that verification.
 
