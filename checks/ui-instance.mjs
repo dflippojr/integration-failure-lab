@@ -35,15 +35,21 @@ if (command === 'stop') {
   if (existsSync(handle)) {
     let owned;
     try { owned = await ownInstance(); } catch (error) {
-      const saved = JSON.parse(readFileSync(handle, 'utf8'));
-      try { process.kill(saved.pid, 0); } catch (probe) {
-        if (probe.code === 'ESRCH') { clean(); process.exit(0); }
+      // The server holds the port for its whole life, so a refused connection proves the
+      // saved instance is gone even when the OS has reused its PID.
+      let gone = error.cause?.code === 'ECONNREFUSED';
+      if (!gone) {
+        const saved = JSON.parse(readFileSync(handle, 'utf8'));
+        try { process.kill(saved.pid, 0); } catch (probe) { gone = probe.code === 'ESRCH'; }
       }
-      throw error;
+      if (!gone) throw error;
+      clean();
     }
-    await fetch(origin + '/__stop', { method: 'POST', headers: { 'X-Instance': owned.id } });
-    for (let i = 0; i < 100 && existsSync(data); i++) await new Promise(r => setTimeout(r, 50));
-    if (existsSync(data)) throw new Error('Teardown did not finish');
+    if (owned) {
+      await fetch(origin + '/__stop', { method: 'POST', headers: { 'X-Instance': owned.id } });
+      for (let i = 0; i < 100 && existsSync(data); i++) await new Promise(r => setTimeout(r, 50));
+      if (existsSync(data)) throw new Error('Teardown did not finish');
+    }
   }
   console.log('UI instance stopped; disposable data absent');
 } else if (command === 'start') {
