@@ -167,7 +167,7 @@ class ScenarioRunnerLifecycleTest {
                     }
                 });
                 server.start();
-                LabProperties props = new LabProperties(null, null, 300, 150, sendAtMs, 200, 400);
+                LabProperties props = new LabProperties(null, null, 300, 150, sendAtMs, 200, 400, null, null, 0);
                 MockEnvironment env = new MockEnvironment()
                         .withProperty("local.server.port", String.valueOf(server.getAddress().getPort()));
                 ScenarioRunner runner = new ScenarioRunner(new ClaimStore(), new RunContext(), props, env) {

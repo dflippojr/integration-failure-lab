@@ -136,6 +136,12 @@ test('a permanent gap in sequence is reported as stuck', () => {
   assert.ok(r.verdict.problems.includes('ClaimPaid stuck in the ordering buffer'));
 });
 
+test('the ordering buffer is listed in seq order, not arrival order', () => {
+  const r = run({ failures: { reorder: { event: 'ClaimAccepted', delayMs: 500 }, timeout: { event: 'ClaimSubmitted', attempts: [1] } } }, { retryLimit: 0, ordering: true });
+  assert.deepEqual(r.buffered.map(b => b.eventId), ['E2', 'E3']);
+  assert.deepEqual(r.verdict.problems.filter(p => p.includes('ordering buffer')), ['ClaimAccepted stuck in the ordering buffer', 'ClaimPaid stuck in the ordering buffer']);
+});
+
 test('backoff schedules', () => {
   assert.deepEqual([1, 2, 3].map(n => backoffMs('exponential', n)), [1000, 2000, 4000]);
   assert.deepEqual([1, 2].map(n => backoffMs('fixed', n)), [1000, 1000]);
