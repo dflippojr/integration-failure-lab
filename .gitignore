@@ -2,6 +2,8 @@ node_modules/
 java/target/
 lcov.info
 dist-test/
+# The build stamp names the commit it was built from, so it cannot be committed with that commit.
+dist/build.json
 
 .ui-testing/
 output/
