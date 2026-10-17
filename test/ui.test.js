@@ -30,7 +30,9 @@ class FakeElement {
 }
 
 let mountLab, SCENARIOS, EXECUTED, RECORDING_IDS, describe, toFormValues, formScenario;
-import { run, judge } from '../engine/engine.js';
+import { run, judge, DEFAULT_SAFEGUARDS } from '../engine/engine.js';
+import { failureSettings, safeguardToggles } from './differential/combos.mjs';
+import { canonical } from './differential/outcome.mjs';
 before(async () => {
   globalThis.Node = FakeElement;
   globalThis.document = { createElement: tag => new FakeElement(tag) };
@@ -455,6 +457,28 @@ test('scenarios with poison, replay after fix or another delay are not expressib
   assert.equal(toFormValues({ failures: { timeout: { event: 'ClaimPaid', attempts: [2] } } }), null);
   assert.equal(toFormValues({ failures: { schemaChange: { event: 'ClaimAccepted' } } }), null);
   assert.equal(toFormValues({ failures: {}, safeguards: { retryLimit: 6 } }), null);
+});
+
+// The differential test (scripts/differential.mjs) must reach every run the Free-form can submit.
+test('the differential generator covers every Free-form control value', () => {
+  const form = byClass(mount(undefined, 'free'), 'ifl-form');
+  const checkboxes = form.find(e => e.tagName === 'INPUT').map(e => e.getAttribute('name'));
+  const settings = failureSettings().map(f => canonical({ [f.kind]: f.value }));
+  const safeguardValues = [DEFAULT_SAFEGUARDS, ...safeguardToggles()].flatMap(Object.entries).map(canonical);
+  let checked = 0;
+  for (const select of form.find(e => e.tagName === 'SELECT')) {
+    for (const option of select.children) {
+      for (const on of [true, false]) {
+        const values = { ...FREE_FORM_DEFAULTS, ...Object.fromEntries(checkboxes.map(n => [n, on ? 'on' : null])),
+          [select.getAttribute('name')]: option.getAttribute('value') };
+        const { failures, safeguards } = formScenario(name => values[name] ?? null);
+        for (const entry of Object.entries(failures)) assert.ok(settings.includes(canonical(Object.fromEntries([entry]))), JSON.stringify(entry));
+        for (const entry of Object.entries(safeguards)) assert.ok(safeguardValues.includes(canonical(entry)), JSON.stringify(entry));
+        checked++;
+      }
+    }
+  }
+  assert.ok(checked >= 2 * (3 * 3 + 3 + 6 + 3), `${checked} form submissions`);
 });
 
 const PICK = ['trace', 'record', 'dlq', 'dropped', 'buffered'];
