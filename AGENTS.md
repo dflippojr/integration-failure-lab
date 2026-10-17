@@ -5,7 +5,7 @@ integration-failure-lab has two implementations of one model: the JS engine (`en
 ## How to prove a change works
 
 - **`npm run ci:local` is the full gate.** It runs the three jobs that the `gate` check in `.github/workflows/ci.yml` requires, one after another:
-  - `npm run test:coverage`: `npm test` with the Node coverage floors.
+  - `npm run lint && npm run test:coverage`: ESLint's recommended rules (`eslint.config.js`), then `npm test` with the Node coverage floors.
   - `./mvnw -B verify -DforkCount=1` in `java/`, including the JaCoCo line-coverage floor.
   - `npm run test:ui -- --workers=1`.
 
