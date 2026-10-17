@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const build = join(root, 'scripts', 'build.mjs');
+const freshness = join(root, 'scripts', 'site-freshness.mjs');
 
 test('build refuses a target that is not one of its fixed names', () => {
   const target = join(parse(build).root, 'ifl-build-escape-test');
@@ -28,7 +29,11 @@ const git = (...args) => {
   return run.stdout.trim();
 };
 const commit = message => { git('add', '-A'); git('commit', '-q', '-m', message); return git('rev-parse', 'HEAD'); };
-const node = (script, ...args) => spawnSync(process.execPath, [join(lab, 'scripts', script), ...args], { cwd: lab, encoding: 'utf8' });
+// Builds run from the private copy, so the site target writes beside it. The read-only freshness check runs from
+// this checkout, so coverage counts it, and GIT_DIR points its git calls at the private repository.
+const node = (script, ...args) => script === 'site-freshness.mjs'
+  ? spawnSync(process.execPath, [freshness, ...args], { encoding: 'utf8', env: { ...process.env, GIT_DIR: join(lab, '.git') } })
+  : spawnSync(process.execPath, [join(lab, 'scripts', script), ...args], { cwd: lab, encoding: 'utf8' });
 const stamp = () => JSON.parse(readFileSync(join(site, 'build.json'), 'utf8'));
 
 before(() => {
@@ -36,7 +41,7 @@ before(() => {
   lab = join(tmp, 'lab');
   site = join(tmp, 'personal-website', 'public', 'lab');
   mkdirSync(join(lab, 'scripts'), { recursive: true });
-  for (const f of ['build.mjs', 'site-freshness.mjs']) cpSync(join(root, 'scripts', f), join(lab, 'scripts', f));
+  cpSync(build, join(lab, 'scripts', 'build.mjs'));
   for (const d of ['engine', 'ui', 'scenarios', 'executed']) cpSync(join(root, d), join(lab, d), { recursive: true });
   cpSync(join(root, 'package.json'), join(lab, 'package.json'));
   writeFileSync(join(lab, '.gitignore'), 'node_modules\n');
