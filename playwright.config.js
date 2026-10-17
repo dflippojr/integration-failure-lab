@@ -27,6 +27,11 @@ export default defineConfig({
       { name: 'desktop-dark', use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 }, colorScheme: 'dark' } },
       { name: 'phone-dark', use: { ...devices['Pixel 7'], viewport: { width: 412, height: 915 }, colorScheme: 'dark' } },
     ].map(project => ({ ...project, testMatch: '**/theme.spec.js' })),
+    // Safari's engine, which most phone visitors to the embedding use: genuine iPhone contexts, every spec.
+    ...['light', 'dark'].flatMap(colorScheme => [
+      { name: 'iphone-se-' + colorScheme, use: { ...devices['iPhone SE'], colorScheme } },
+      { name: 'iphone-15-' + colorScheme, use: { ...devices['iPhone 15'], colorScheme } },
+    ]),
   ],
   webServer: {
     command: 'node checks/ui-instance.mjs serve',

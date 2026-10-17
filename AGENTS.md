@@ -5,11 +5,11 @@ integration-failure-lab has two implementations of one model: the JS engine (`en
 ## How to prove a change works
 
 - **`npm run ci:local` is the full gate.** It runs the three jobs that the `gate` check in `.github/workflows/ci.yml` requires, one after another:
-  - `npm run test:coverage`: `npm test` with the Node coverage floors.
+  - `npm run lint && npm run test:coverage`: ESLint's recommended rules (`eslint.config.js`), then `npm test` with the Node coverage floors.
   - `./mvnw -B verify -DforkCount=1` in `java/`, including the JaCoCo line-coverage floor.
   - `npm run test:ui -- --workers=1`.
 
-  It then always runs `npm run ui:stop`, even after a failure or Ctrl+C. Every step runs even when an earlier one fails, and the summary at the end lists each result. It needs `npm ci`, `npx playwright install chromium` and a Java 21 JDK (`JAVA_HOME` must point at a JDK, not a JRE). Keep the parallelism it uses: Java on one fork and Playwright on one worker.
+  It then always runs `npm run ui:stop`, even after a failure or Ctrl+C. Every step runs even when an earlier one fails, and the summary at the end lists each result. It needs `npm ci`, `npx playwright install chromium webkit` and a Java 21 JDK (`JAVA_HOME` must point at a JDK, not a JRE). Keep the parallelism it uses: Java on one fork and Playwright on one worker.
 - **UI changes** follow [docs/ui-testing.md](docs/ui-testing.md): the disposable instance, the journeys, the device and theme matrix, and teardown.
 - **Rebuild and commit `dist/`** with `npm run build` after any change to `engine/`, `ui/` or `scenarios/`. `test/dist.test.js` fails when `dist/` differs from a fresh build.
 - **Fill the PR's `## Proof` table** (the shared PR template, dflippojr/.github#13): one row per acceptance criterion, with how it was verified (command, test name) and the evidence (output excerpt, run link, red before and green after). List what you did not verify under `### Not verified`, and any test you deleted or skipped, or config you loosened, under `### Gate changes`.

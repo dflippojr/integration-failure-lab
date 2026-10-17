@@ -17,8 +17,9 @@ async function gate(steps, stop = pass('stop')) {
 test('the steps are the ci.yml jobs before gate, with one Java fork and one Playwright worker', () => {
   const ci = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8');
   const jobs = [...ci.matchAll(/^ {2}(\w+):$/gm)].map(m => m[1]);
-  assert.deepEqual(STEPS.map(s => s.name).concat('gate'), jobs);
-  assert.match(STEPS[0].command, /^npm run test:coverage$/);
+  // publish runs after gate, only on main, so ci:local has no step for it.
+  assert.deepEqual(STEPS.map(s => s.name).concat('gate', 'publish'), jobs);
+  assert.match(STEPS[0].command, /^npm run lint && npm run test:coverage$/);
   assert.match(STEPS[1].command, /mvnw(\.cmd)? -B verify -DforkCount=1$/);
   assert.match(STEPS[2].command, /^npm run test:ui -- --workers=1$/);
   assert.equal(STOP.command, 'npm run ui:stop');

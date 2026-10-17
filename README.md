@@ -31,11 +31,17 @@ The runner reads scenarios from `../scenarios` relative to where it starts, so r
 
 An optional `lab.send-at-ms` override must supply exactly three emission times, one each for E1, E2, and E3 (for example, `--lab.send-at-ms=10,50,90`). Omitting it or supplying an empty list uses `0,40,80`; incomplete lists fail configuration binding before delivery starts.
 
-The website vendors the bundle into `public/lab/` (`node scripts/build.mjs site`, which writes to `../personal-website/public/lab`, so the website checkout must sit next to this repo). The build takes a fixed target name, not a path: `dist` (the default), `site`, or `test` (the git-ignored `dist-test/` the UI tests use); anything else exits with an error. Mount with `mountLab(element, { headingLevel, scenario })`: the scenario title is an `h3` by default, for a lab placed under an `h2`; pass the level that fits your page (2-6). To link to a failure, pass `scenario` as a full ID (`2a-duplicate`) or its chip prefix (`2a`), in any case: the lab opens Guided on that scenario without running it, moving focus or scrolling, and without saving Guided as the visitor's mode (the saved run source still applies). An unknown, empty or non-string value is ignored.
+The website vendors the bundle into `public/lab/` (`node scripts/build.mjs site`, which writes to `../personal-website/public/lab`, so the website checkout must sit next to this repo). The build takes a fixed target name, not a path: `dist` (the default), `site`, or `test` (the git-ignored `dist-test/` the UI tests use); anything else exits with an error.
+
+Every build writes `build.json` beside the bundle: `{ "gitCommit": "<sha>", "builtFrom": "integration-failure-lab" }`. `gitCommit` is HEAD, with `-dirty` appended when the checkout has uncommitted or untracked changes (`unknown` outside a git checkout); the `site` target refuses both, so a vendored copy always names a clean commit. `dist/build.json` is git-ignored because a commit cannot contain its own SHA; every other file in `dist/` is committed and checked against a fresh build.
+
+Each `main` commit that passes the `gate` check is published as the rolling **lab-bundle** pre-release (`releases/tag/lab-bundle`): `lab-bundle.zip` holds `dist/` with its `build.json`, and `build.json` is also attached on its own. To check whether a site copy has fallen behind, run `node scripts/site-freshness.mjs ../personal-website/public/lab [ref]` from an up-to-date checkout of this repo (`ref` defaults to `main`; pass `origin/main` in a fresh clone). It prints `current: ...` and exits 0 when the stamp names `ref`'s commit. It exits 1 with `stale by N commits (M changed dist/)`, or with `stale: ...` when `build.json` is missing, unreadable, unstamped, `-dirty` or from a commit that is not on `ref`. Usage errors exit 2.
+
+Mount with `mountLab(element, { headingLevel, scenario })`: the scenario title is an `h3` by default, for a lab placed under an `h2`; pass the level that fits your page (2-6). To link to a failure, pass `scenario` as a full ID (`2a-duplicate`) or its chip prefix (`2a`), in any case: the lab opens Guided on that scenario without running it, moving focus or scrolling, and without saving Guided as the visitor's mode (the saved run source still applies). An unknown, empty or non-string value is ignored.
 
 Guided mode loads `executed.js` only when **Replay real run** is activated. Selecting Executed or restoring a saved `ifl-source=exec` preference does not fetch recordings. A small `RECORDING_IDS` manifest in generated `scenarios.js` comes from actual recording keys, so scenarios without recordings remain simulation-only. Pending loads share one import across mounts and disable repeated Run requests; changing mode, scenario, or source discards the old playback request. Successful imports stay cached. Loading and failures appear in the named **Replay status** region; failures offer **Retry replay**, and simulation remains usable.
 
-The build minifies each shipped file on its own with esbuild (pinned in `devDependencies`): no bundling, no source maps, and the same export names, so `executed.js` stays a separate lazy import. The readable sources are `engine/engine.js`, `ui/lab.js` and `ui/lab.css`. Output is byte-identical on Windows and Linux.
+The build minifies each shipped file on its own with esbuild (pinned in `devDependencies`): no bundling, no source maps, and the same export names, so `executed.js` stays a separate lazy import. The readable sources are `engine/engine.js`, `ui/lab.js` and `ui/lab.css`. Output is byte-identical on Windows and Linux, apart from the commit in `build.json`.
 
 The initial static JS graph is now `lab.js ? engine.js, scenarios.js`; `executed.js` is dynamically imported on demand. Generated `scenarios.js` carries only the six fields the browser reads (`id`, `title`, `summary`, `failures`, `safeguards`, `lesson`); the `expect` oracle and the `order` sort key stay in `scenarios/*.json`. Offline sizes measured with #51, #58, #67 and #66 (minification) applied on Windows with Node v24.18.0, unchanged recording fixtures, consistent CRLF line endings for all modules, and each module compressed separately using gzip level 9:
 
@@ -69,7 +75,7 @@ HyperFrames, FFmpeg (`ffmpeg-static`) and GSAP are pinned in `demo/package.json`
 
 ### Disposable UI testing
 
-See [the UI testing contract](docs/ui-testing.md) for isolated startup, synthetic journeys, device coverage and cleanup. Run `npm ci`, then `npx playwright install chromium`, and `npm run test:ui -- --workers=1`. The test runner owns its loopback server; finish with `npm run ui:stop`, including after failures. For manual exploration use `npm run ui:start` and the printed local URL. No backend or credentials are required.
+See [the UI testing contract](docs/ui-testing.md) for isolated startup, synthetic journeys, device coverage and cleanup. Run `npm ci`, then `npx playwright install chromium webkit`, and `npm run test:ui -- --workers=1`. The test runner owns its loopback server; finish with `npm run ui:stop`, including after failures. For manual exploration use `npm run ui:start` and the printed local URL. No backend or credentials are required.
 
 ### CI
 
@@ -78,13 +84,13 @@ Run the whole gate locally with `npm run ci:local` (see [AGENTS.md](AGENTS.md)).
 GitHub Actions runs two workflows on pushes and pull requests:
 
 - `.github/workflows/ci.yml`: three jobs and a `gate` job, which is the one check to require.
-  - `engine`: `npm run test:coverage` (Node 22), which is `npm test` with line and branch coverage floors.
+  - `engine`: `npm run lint` (ESLint recommended rules, `eslint.config.js`), then `npm run test:coverage` (Node 22), which is `npm test` with line and branch coverage floors.
   - `java`: `./mvnw -B verify` in `java/` (Java 21), including a JaCoCo line-coverage floor.
   - `playwright`: isolated desktop/Pixel 7 Playwright journeys in light, a host-token and Guided/Free-form smoke test on both dark projects, plus desktop-light breakpoint and live-resize checks on GitHub-hosted runners with one worker.
   - `gate`: runs after the other three even when one fails, and passes only when all three succeed.
 - `.github/workflows/sonar.yml`: SonarCloud analysis with coverage (lcov from the Node test runner, JaCoCo from the Java module). It runs on pushes to `main` and on pull requests from this repo, and fails when the quality gate fails. A newer push cancels a PR's running analysis, but runs on `main` are never cancelled. Project keys are in `sonar-project.properties`.
 
-Dependabot checks weekly for Maven updates in `/java`, npm updates at `/`, and GitHub Actions updates at `/`, as configured in `.github/dependabot.yml`. The root npm entry covers the Playwright test dependency.
+Dependabot checks weekly for Maven updates in `/java`, npm updates at `/`, and GitHub Actions updates at `/`, as configured in `.github/dependabot.yml`. The root npm entry covers the Playwright, esbuild and ESLint dev dependencies.
 
 SonarCloud requires an authorized analysis token named `SONAR_TOKEN` in repository **Actions** secrets for ordinary runs and separately in **Dependabot** secrets for Dependabot PRs (Settings → Secrets and variables → Dependabot → New repository secret). GitHub supplies the appropriate secret store through the same workflow reference; Actions secrets are unavailable to Dependabot-triggered runs. Fork PRs remain excluded. If the token is absent, the SonarCloud workflow emits a notice and a job summary and skips analysis cleanly; this is not a successful analysis or a passing quality gate. The `ci` workflow still runs.
 

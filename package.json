@@ -5,6 +5,7 @@
   "description": "Deterministic simulator of integration failures (timeouts, duplicates, reordering, schema changes) and their safeguards.",
   "scripts": {
     "test": "node --test",
+    "lint": "eslint .",
     "test:coverage": "node --test --experimental-test-coverage --test-coverage-lines=97 --test-coverage-branches=92",
     "ci:local": "node scripts/ci-local.mjs",
     "build": "node scripts/build.mjs",
@@ -18,7 +19,10 @@
   },
   "license": "MIT",
   "devDependencies": {
+    "@eslint/js": "10.0.1",
     "@playwright/test": "^1.64.0",
-    "esbuild": "0.28.2"
+    "esbuild": "0.28.2",
+    "eslint": "10.13.0",
+    "globals": "17.13.0"
   }
 }
