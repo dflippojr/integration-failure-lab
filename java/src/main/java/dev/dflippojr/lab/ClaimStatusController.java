@@ -12,8 +12,10 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * The downstream claim-status service. Faults are injected here, on the server side: a "timeout"
- * holds the request past the client's read timeout without processing it, and a "lost ack"
- * processes the event and then holds the response so the client never sees it.
+ * holds the request past the client's read timeout without processing it, a "lost ack"
+ * processes the event and then holds the response so the client never sees it, and an
+ * out-of-order delay holds the request before processing it, like a slow network: the client's
+ * read timeout is already running, as the engine's ack timeout runs from the send.
  */
 @RestController
 public class ClaimStatusController {
@@ -41,6 +43,9 @@ public class ClaimStatusController {
         Trace trace = run.trace();
         ClaimEvent event = fromBody(claimId, body);
 
+        if (scenario.failures().delayed(event.type(), attempt)) {
+            Thread.sleep(props.reorderDelayMs());
+        }
         if (scenario.failures().timesOut(event.type(), attempt)) {
             Thread.sleep(props.timeoutMs() * 2);
             return ResponseEntity.status(504).build();
