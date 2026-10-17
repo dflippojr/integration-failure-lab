@@ -213,9 +213,9 @@ public class ScenarioRunner {
             return new IllegalStateException("Scenario " + scenario.id() + ": " + what + " failed: " + cause, cause);
         }
 
+        /** Posts at once: an out-of-order delay is network time, held by the downstream after the read timeout starts. */
         void send(ClaimEvent event, int attempt) {
-            long delay = scenario.failures().delayed(event.type(), attempt) ? props.reorderDelayMs() : 0;
-            schedule("delivery of " + describe(event) + " attempt " + attempt, () -> post(event, attempt), delay);
+            schedule("delivery of " + describe(event) + " attempt " + attempt, () -> post(event, attempt), 0);
         }
 
         /** Waits until every event settles, a task fails, the limit passes, or the caller is interrupted. */

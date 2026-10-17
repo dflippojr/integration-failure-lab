@@ -7,7 +7,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 /**
  * Wall-clock timings for executed runs. They are shorter than the simulation's virtual timings
  * (2 s ack timeout, 1 s backoff base) so a full export takes seconds, and every exported trace
- * records the values it ran with.
+ * records the values it ran with. {@code differentialIn}/{@code differentialOut} select the
+ * differential batch mode ({@link DifferentialRunner}), run on {@code differentialWorkers} workers.
  */
 @ConfigurationProperties(prefix = "lab")
 public record LabProperties(
@@ -17,7 +18,10 @@ public record LabProperties(
         long backoffBaseMs,
         List<Long> sendAtMs,
         long reorderDelayMs,
-        long replayDelayMs) {
+        long replayDelayMs,
+        String differentialIn,
+        String differentialOut,
+        int differentialWorkers) {
 
     public LabProperties {
         if (scenariosDir == null) scenariosDir = "../scenarios";
@@ -33,5 +37,15 @@ public record LabProperties(
         }
         if (reorderDelayMs <= 0) reorderDelayMs = 200;
         if (replayDelayMs <= 0) replayDelayMs = 400;
+        if ((differentialIn == null) != (differentialOut == null)) {
+            throw new IllegalArgumentException("lab.differential-in and lab.differential-out must be set together");
+        }
+        if (differentialWorkers == 0) differentialWorkers = 1;
+        if (differentialWorkers < 1 || differentialWorkers > 4) {
+            throw new IllegalArgumentException("lab.differential-workers must be between 1 and 4");
+        }
+        if (differentialIn != null && exportDir != null) {
+            throw new IllegalArgumentException("lab.export-dir and lab.differential-in select different batch modes; set one");
+        }
     }
 }

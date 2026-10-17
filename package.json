@@ -11,6 +11,7 @@
     "ui:start": "node checks/ui-instance.mjs start",
     "ui:stop": "node checks/ui-instance.mjs stop",
     "test:ui": "playwright test",
+    "differential": "node scripts/differential.mjs",
     "demo:render": "node demo/render.mjs"
   },
   "engines": {
