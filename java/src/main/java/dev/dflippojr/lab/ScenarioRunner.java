@@ -119,13 +119,18 @@ public class ScenarioRunner {
 
     /**
      * Drops queued emissions, interrupts in-flight work and waits a bounded time for it, so failures
-     * from tasks that were already running are recorded before the caller sees the outcome.
+     * from tasks that were already running are recorded before the caller sees the outcome. Then waits
+     * for the downstream to finish requests the client gave up on, such as an out-of-order delay longer
+     * than the read timeout, so they land in this run and not in the next one.
      */
-    private static void quiesce(ScheduledExecutorService scheduler, Delivery delivery) {
+    private void quiesce(ScheduledExecutorService scheduler, Delivery delivery) {
         scheduler.shutdownNow();
         try {
             if (!scheduler.awaitTermination(QUIESCE_SECONDS, TimeUnit.SECONDS)) {
                 delivery.fail(new IllegalStateException("delivery workers did not stop"));
+            }
+            if (!context.awaitIdle(Duration.ofSeconds(QUIESCE_SECONDS))) {
+                delivery.fail(new IllegalStateException("downstream requests did not finish"));
             }
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
