@@ -39,6 +39,21 @@ public class ScenarioRunner {
 
     private static final long QUIESCE_SECONDS = 5;
 
+    /** How a run decides that a request timed out. */
+    public enum Timeouts {
+        /** When the read timeout really expires. Normal runs and the differential use this. */
+        REAL,
+        /**
+         * On the run's logical timeline, from the injected faults alone: a request times out when the
+         * downstream holds it for a timeout or lost-ack fault, or delays it to or past the read timeout.
+         * Requests still go over real HTTP, waited for up to {@link ScenarioRunner#transportBound()}; one with
+         * no answer by then fails the run as an infrastructure failure rather than recording a timeout. The
+         * recordings export uses this, so a stalled machine cannot record a timeout the scenario does not
+         * inject, and the comparison with {@code executed/} can stay exact.
+         */
+        LOGICAL
+    }
+
     private final ClaimStore store;
     private final RunContext context;
     private final LabProperties props;
@@ -51,27 +66,32 @@ public class ScenarioRunner {
         this.env = env;
     }
 
-    public synchronized Map<String, Object> run(Scenario scenario) throws InterruptedException {
-        try (HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(1))
+    public Map<String, Object> run(Scenario scenario) throws InterruptedException {
+        return run(scenario, Timeouts.REAL);
+    }
+
+    public synchronized Map<String, Object> run(Scenario scenario, Timeouts timeouts) throws InterruptedException {
+        Duration connect = timeouts == Timeouts.LOGICAL ? transportBound() : Duration.ofSeconds(1);
+        try (HttpClient http = HttpClient.newBuilder().connectTimeout(connect)
                 .version(HttpClient.Version.HTTP_1_1).build()) {
-            return run(scenario, http);
+            return run(scenario, timeouts, http);
         }
     }
 
-    private Map<String, Object> run(Scenario scenario, HttpClient http) throws InterruptedException {
+    private Map<String, Object> run(Scenario scenario, Timeouts timeouts, HttpClient http) throws InterruptedException {
         // Exercise the event endpoint's JSON binding and header conversion before the scenario
         // clock starts. A health GET does not initialize this path. No injected faults apply here.
         RunContext.Run warmup = context.begin(Scenario.fromMap(Map.of("id", "warm-up")), new Trace(), store.reset());
         long warmupStart = System.nanoTime();
         postEvent(client(http, Duration.ofSeconds(10)), ClaimEvent.sequence().getFirst(), 1, warmup.epoch(), 1);
         long warmupMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - warmupStart);
-        RestClient client = client(http, Duration.ofMillis(props.timeoutMs()));
+        RestClient client = client(http, timeouts == Timeouts.LOGICAL ? transportBound() : Duration.ofMillis(props.timeoutMs()));
 
         Trace trace = new Trace();
         RunContext.Run run = context.begin(scenario, trace, store.reset());
 
         ScheduledExecutorService scheduler = newDeliveryScheduler();
-        Delivery delivery = new Delivery(client, scenario, trace, run, scheduler);
+        Delivery delivery = new Delivery(client, scenario, timeouts, trace, run, scheduler);
         run.attach(delivery);
         try {
             List<ClaimEvent> events = ClaimEvent.sequence();
@@ -127,6 +147,14 @@ public class ScenarioRunner {
     /** The overall bound for a run that neither settles every event nor fails. */
     Duration scenarioLimit() {
         return Duration.ofSeconds(30);
+    }
+
+    /**
+     * With logical timeouts, how long a request may go without an answer before the run fails as an
+     * infrastructure failure: far past any injected hold, and no part of a scenario's behaviour.
+     */
+    Duration transportBound() {
+        return Duration.ofSeconds(10);
     }
 
     /**
@@ -228,7 +256,10 @@ public class ScenarioRunner {
     /** One HTTP attempt, by the number the runner gave it. */
     private static final class Request {
         final long at;
-        final int seq;
+        final ClaimEvent event;
+        final int attempt;
+        /** When it was sent, by the wall clock. */
+        final long sentNanos = System.nanoTime();
         /** What the sender does next: due at the timeout until the answer is in. */
         final Step answer;
         long delayMs;
@@ -239,9 +270,10 @@ public class ScenarioRunner {
         boolean released;
         boolean processed;
 
-        Request(long at, int seq, Step answer) {
+        Request(long at, ClaimEvent event, int attempt, Step answer) {
             this.at = at;
-            this.seq = seq;
+            this.event = event;
+            this.attempt = attempt;
             this.answer = answer;
         }
     }
@@ -252,7 +284,8 @@ public class ScenarioRunner {
      * that is, each has its answer or is held by an injected fault. So a slow healthy request is never
      * overtaken, timers cannot fire out of order, and a run's trace order does not depend on the scheduler;
      * only the injected faults reorder deliveries. Read timeouts stay real: a request that has no answer
-     * by then times out, as one held in transit by a slow network does.
+     * by then times out, as one held in transit by a slow network does. With {@link Timeouts#LOGICAL} they
+     * are judged on the timeline instead (see {@link #timeOut}).
      */
     private final class Delivery implements RunContext.Gate {
         final ScheduledExecutorService scheduler;
@@ -262,6 +295,7 @@ public class ScenarioRunner {
         private final Set<String> replayed = ConcurrentHashMap.newKeySet();
         private final RestClient client;
         private final Scenario scenario;
+        private final Timeouts timeouts;
         private final Trace trace;
         private final RunContext.Run run;
         /** Steps not yet run. Guarded by {@code this}, as are the fields up to {@code primary}. */
@@ -280,10 +314,12 @@ public class ScenarioRunner {
         /** The first failure of the run; later ones are attached to it as suppressed. */
         private Exception primary;
 
-        Delivery(RestClient client, Scenario scenario, Trace trace, RunContext.Run run, ScheduledExecutorService scheduler) {
+        Delivery(RestClient client, Scenario scenario, Timeouts timeouts, Trace trace, RunContext.Run run,
+                 ScheduledExecutorService scheduler) {
             this.scheduler = scheduler;
             this.client = client;
             this.scenario = scenario;
+            this.timeouts = timeouts;
             this.trace = trace;
             this.run = run;
         }
@@ -321,7 +357,12 @@ public class ScenarioRunner {
                 step = new Step(due, event.seq(), ++steps, what, task);
                 timeline.add(step);
             }
-            schedule(what, () -> {
+            ready(step, waitMs);
+        }
+
+        /** Makes the step ready {@code waitMs} from now. */
+        private void ready(Step step, long waitMs) {
+            schedule(step.what, () -> {
                 synchronized (this) {
                     step.ready = true;
                 }
@@ -357,7 +398,7 @@ public class ScenarioRunner {
                 id = ++sends;
                 Step answer = new Step(now + props.timeoutMs(), event.seq(), ++steps, what, null);
                 timeline.add(answer);
-                requests.put(id, new Request(now, event.seq(), answer));
+                requests.put(id, new Request(now, event, attempt, answer));
                 moving++;
             }
             schedule(what, () -> post(event, attempt, id), 0);
@@ -377,6 +418,8 @@ public class ScenarioRunner {
         private void answered(long id, boolean timedOut, Runnable next) {
             synchronized (this) {
                 Request request = requests.get(id);
+                // Its logical timeout has been taken already; the late real answer changes nothing.
+                if (request.answered) return;
                 request.answered = true;
                 timeline.remove(request.answer);
                 if (!timedOut) request.answer.due = request.at + request.delayMs;
@@ -387,6 +430,32 @@ public class ScenarioRunner {
                 moving(request, request.released && !request.processed);
             }
             drain();
+        }
+
+        /**
+         * With logical timeouts, the request has timed out on the timeline: its sender gives up at the read
+         * timeout, logically and, unless the machine is already late, by the wall clock too, whatever its real
+         * answer does. Guarded by {@code this}.
+         */
+        private void timeOut(Request request) {
+            request.answered = true;
+            request.answer.task = () -> onTimeout(request.event, request.attempt);
+            long waited = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - request.sentNanos);
+            try {
+                ready(request.answer, Math.max(0, props.timeoutMs() - waited));
+            } catch (RejectedExecutionException stopping) {
+                // The run is over; nothing waits for this answer.
+            }
+        }
+
+        /** With logical timeouts, the request got no answer within the transport bound: the run fails. */
+        private void unanswered(long id, RestClientException cause) {
+            synchronized (this) {
+                if (requests.get(id).answered) return;
+            }
+            fail(new IllegalStateException("Scenario " + scenario.id() + ": request " + id + " had no answer within the "
+                    + transportBound().toMillis() + " ms transport bound. The machine or the downstream stalled;"
+                    + " that is an infrastructure failure, not a timeout the scenario injects", cause));
         }
 
         @Override
@@ -400,10 +469,10 @@ public class ScenarioRunner {
                 request.delayMs = delayMs;
                 request.release = release;
                 moving(request, false);
+                if (timeouts == Timeouts.LOGICAL && delayMs >= props.timeoutMs()) timeOut(request);
             }
             try {
-                ClaimEvent event = ClaimEvent.sequence().get(request.seq - 1);
-                at(request.at + delayMs, delayMs, event, "end of the delay of request " + send, () -> {
+                at(request.at + delayMs, delayMs, request.event, "end of the delay of request " + send, () -> {
                     synchronized (this) {
                         request.released = true;
                         moving(request, true);
@@ -431,6 +500,7 @@ public class ScenarioRunner {
                 if (request == null) return;
                 request.processed = true;
                 moving(request, false);
+                if (timeouts == Timeouts.LOGICAL && !stopped) timeOut(request);
             }
             drain();
         }
@@ -515,7 +585,11 @@ public class ScenarioRunner {
             } catch (RestClientException timeoutOrServerError) {
                 // shutdownNow interrupts in-flight sends: that is cancellation, not a delivery timeout.
                 if (Thread.currentThread().isInterrupted() || scheduler.isShutdown()) return;
-                answered(id, true, () -> onTimeout(event, attempt));
+                if (timeouts == Timeouts.LOGICAL) {
+                    unanswered(id, timeoutOrServerError);
+                } else {
+                    answered(id, true, () -> onTimeout(event, attempt));
+                }
             }
         }
 

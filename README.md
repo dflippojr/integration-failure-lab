@@ -38,7 +38,7 @@ cd java && ./mvnw -B package -DskipTests && java -jar target/integration-failure
 cd .. && npm run build
 ```
 
-The export mode runs the first scenario once and discards it before recording, so a cold JVM cannot reorder the first recording. The runs are real HTTP with 40 ms between emissions, so a heavily loaded machine can still delay one request past the next emission and change the outcome (`applied: ["E2", "E1"]`). The check is meant for an idle machine, such as a GitHub-hosted runner.
+The export mode runs the first scenario once and discards it before recording, so a cold JVM cannot reorder the first recording. Its requests are real HTTP, but it judges timeouts on each run's logical timeline instead of by the wall clock: a request times out only when the scenario injects a timeout or a lost ack, or delays it to or past the 300 ms read timeout. So a busy machine or a paused JVM slows the export down but cannot add a timeout to a recording. A request with no answer within a 10 s transport bound fails the export as an infrastructure problem instead of being recorded as a timeout. Normal runs and the differential keep real read timeouts.
 
 ### Differential testing
 

@@ -47,10 +47,11 @@ public class ExportRunner implements CommandLineRunner {
         List<Scenario> scenarios = files.load();
         // A discarded first run: on a cold JVM the first scenario's requests can be slow enough to pass
         // the read timeout, so the first recording would show timeouts the scenario does not inject.
-        runner.run(scenarios.getFirst());
+        runner.run(scenarios.getFirst(), ScenarioRunner.Timeouts.LOGICAL);
         List<Map<String, Object>> index = new ArrayList<>();
         for (Scenario scenario : scenarios) {
-            Map<String, Object> result = runner.run(scenario);
+            // Logical timeouts: a recording shows the injected faults, not how busy the machine was.
+            Map<String, Object> result = runner.run(scenario, ScenarioRunner.Timeouts.LOGICAL);
             files.write(out, scenario.id() + ".json", result);
             Map<String, Object> entry = new LinkedHashMap<>();
             entry.put("scenarioId", scenario.id());
