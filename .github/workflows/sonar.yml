@@ -16,7 +16,8 @@ permissions:
 
 concurrency:
   group: sonar-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  # Never cancel main: back-to-back merges would otherwise cancel its analysis.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   sonar:

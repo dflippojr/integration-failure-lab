@@ -5,10 +5,13 @@
   "description": "Deterministic simulator of integration failures (timeouts, duplicates, reordering, schema changes) and their safeguards.",
   "scripts": {
     "test": "node --test",
+    "test:coverage": "node --test --experimental-test-coverage --test-coverage-lines=97 --test-coverage-branches=92",
+    "ci:local": "node scripts/ci-local.mjs",
     "build": "node scripts/build.mjs",
     "ui:start": "node checks/ui-instance.mjs start",
     "ui:stop": "node checks/ui-instance.mjs stop",
     "test:ui": "playwright test",
+    "differential": "node scripts/differential.mjs",
     "demo:render": "node demo/render.mjs"
   },
   "engines": {

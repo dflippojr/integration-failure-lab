@@ -29,6 +29,10 @@ python -m http.server 4180 --directory dist   # open http://127.0.0.1:4180
 
 The runner reads scenarios from `../scenarios` relative to where it starts, so run the jar from `java/`.
 
+### Differential testing
+
+The twelve scenarios only pin down twelve points of what Free-form can reach. `npm run differential` (after `cd java && ./mvnw -B package -DskipTests`) checks the rest: `test/differential/combos.mjs` generates every pair of failure setting (kind, target event and timeout attempts) and single safeguard change, every pair of failures, and a seeded sample of 3-way combinations, including poison and replay after the fix. The script runs each through `engine.run()` and, in one JVM, through the Java runner's batch mode (`--lab.differential-in=<file> --lab.differential-out=<file>`, `DifferentialRunner`, four combinations at a time, each worker with its own store and port) over real loopback HTTP. Java runs the engine's own timing model at a quarter of its speed (`TIME_SCALE` in `scripts/differential.mjs`), because the runner's default timings are not proportional to the engine's and reorder outcomes on their own. Both sides write the same normalised outcome: the record, the DLQ, dropped and buffered event ids, and the verdict (`Verdict.java` ports `judge()`), without timings. Any combination whose outcomes differ fails the run with both outcomes and a repro line (`npm run differential -- --only <id>`). Owner-decided divergences go in `test/differential/known.json`: at most three, each with an issue link and the exact combination ids it explains. A listed combination whose outcomes agree again fails the run as stale, so the file only shrinks. A full run takes about four minutes.
+
 An optional `lab.send-at-ms` override must supply exactly three emission times, one each for E1, E2, and E3 (for example, `--lab.send-at-ms=10,50,90`). Omitting it or supplying an empty list uses `0,40,80`; incomplete lists fail configuration binding before delivery starts.
 
 The website vendors the bundle into `public/lab/` (`node scripts/build.mjs site`, which writes to `../personal-website/public/lab`, so the website checkout must sit next to this repo). The build takes a fixed target name, not a path: `dist` (the default), `site`, or `test` (the git-ignored `dist-test/` the UI tests use); anything else exits with an error. Mount with `mountLab(element, { headingLevel, scenario })`: the scenario title is an `h3` by default, for a lab placed under an `h2`; pass the level that fits your page (2-6). To link to a failure, pass `scenario` as a full ID (`2a-duplicate`) or its chip prefix (`2a`), in any case: the lab opens Guided on that scenario without running it, moving focus or scrolling, and without saving Guided as the visitor's mode (the saved run source still applies). An unknown, empty or non-string value is ignored.
@@ -73,15 +77,21 @@ See [the UI testing contract](docs/ui-testing.md) for isolated startup, syntheti
 
 ### CI
 
-GitHub Actions runs three workflows on pushes and pull requests:
+Run the whole gate locally with `npm run ci:local` (see [AGENTS.md](AGENTS.md)).
 
-- `.github/workflows/ui.yml`: isolated desktop/Pixel 7 Playwright journeys in light, a host-token and Guided/Free-form smoke test on both dark projects, plus desktop-light breakpoint and live-resize checks on GitHub-hosted runners with one worker.
-- `.github/workflows/test.yml`: `npm test` (Node 22) and `./mvnw -B verify` in `java/` (Java 21).
-- `.github/workflows/sonar.yml`: SonarCloud analysis with coverage (lcov from the Node test runner, JaCoCo from the Java module). It runs on pushes to `main` and on pull requests from this repo, and fails when the quality gate fails. Project keys are in `sonar-project.properties`.
+GitHub Actions runs two workflows on pushes and pull requests:
+
+- `.github/workflows/ci.yml`: four jobs and a `gate` job, which is the one check to require.
+  - `engine`: `npm run test:coverage` (Node 22), which is `npm test` with line and branch coverage floors.
+  - `java`: `./mvnw -B verify` in `java/` (Java 21), including a JaCoCo line-coverage floor.
+  - `differential`: `npm run differential` against a freshly built runner jar (see [Differential testing](#differential-testing)).
+  - `playwright`: isolated desktop/Pixel 7 Playwright journeys in light, a host-token and Guided/Free-form smoke test on both dark projects, plus desktop-light breakpoint and live-resize checks on GitHub-hosted runners with one worker.
+  - `gate`: runs after the other four even when one fails, and passes only when all four succeed.
+- `.github/workflows/sonar.yml`: SonarCloud analysis with coverage (lcov from the Node test runner, JaCoCo from the Java module). It runs on pushes to `main` and on pull requests from this repo, and fails when the quality gate fails. A newer push cancels a PR's running analysis, but runs on `main` are never cancelled. Project keys are in `sonar-project.properties`.
 
 Dependabot checks weekly for Maven updates in `/java`, npm updates at `/`, and GitHub Actions updates at `/`, as configured in `.github/dependabot.yml`. The root npm entry covers the Playwright test dependency.
 
-SonarCloud requires an authorized analysis token named `SONAR_TOKEN` in repository **Actions** secrets for ordinary runs and separately in **Dependabot** secrets for Dependabot PRs (Settings → Secrets and variables → Dependabot → New repository secret). GitHub supplies the appropriate secret store through the same workflow reference; Actions secrets are unavailable to Dependabot-triggered runs. Fork PRs remain excluded. If the token is absent, the SonarCloud workflow emits a notice and a job summary and skips analysis cleanly; this is not a successful analysis or a passing quality gate. The separate test workflow still runs.
+SonarCloud requires an authorized analysis token named `SONAR_TOKEN` in repository **Actions** secrets for ordinary runs and separately in **Dependabot** secrets for Dependabot PRs (Settings → Secrets and variables → Dependabot → New repository secret). GitHub supplies the appropriate secret store through the same workflow reference; Actions secrets are unavailable to Dependabot-triggered runs. Fork PRs remain excluded. If the token is absent, the SonarCloud workflow emits a notice and a job summary and skips analysis cleanly; this is not a successful analysis or a passing quality gate. The `ci` workflow still runs.
 
 Owner verification: ensure the configured SonarCloud project exists with automatic analysis disabled, save the authorized Dependabot `SONAR_TOKEN`, and verify analysis on a `main` push, an ordinary same-repository PR, and at least one real Dependabot PR. Record the workflow and SonarCloud result links for the PR's head commit in issue #16; a missing-token notice does not satisfy that verification.
 

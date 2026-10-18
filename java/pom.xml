@@ -57,6 +57,29 @@
               <goal>report</goal>
             </goals>
           </execution>
+          <!-- Line-coverage floor: 1 point below the 91.84% measured on 2026-10-16.
+               Floors only ever go up; raise it when coverage rises, never lower it. -->
+          <execution>
+            <id>check</id>
+            <phase>verify</phase>
+            <goals>
+              <goal>check</goal>
+            </goals>
+            <configuration>
+              <rules>
+                <rule>
+                  <element>BUNDLE</element>
+                  <limits>
+                    <limit>
+                      <counter>LINE</counter>
+                      <value>COVEREDRATIO</value>
+                      <minimum>0.90</minimum>
+                    </limit>
+                  </limits>
+                </rule>
+              </rules>
+            </configuration>
+          </execution>
         </executions>
       </plugin>
     </plugins>
