@@ -218,7 +218,8 @@ export function run(scenario, overrides = {}) {
     next.fn(next.t);
   }
 
-  const buffered = [...buffer.values()].map(e => ({ eventId: e.eventId, eventType: e.type, seq: e.seq }));
+  // Listed in seq order, the order the buffer drains in (Java's TreeMap matches).
+  const buffered = [...buffer.values()].sort((a, b) => a.seq - b.seq).map(e => ({ eventId: e.eventId, eventType: e.type, seq: e.seq }));
   const verdict = judge(record, { dlq, buffered });
   return { trace, record, expected: EXPECTED_RECORD, dlq, dropped, buffered, stats, guards, verdict };
 }
