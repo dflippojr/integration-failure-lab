@@ -1,5 +1,6 @@
 package dev.dflippojr.lab;
 
+import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -37,7 +38,12 @@ public class ExportRunner implements CommandLineRunner {
     @Override
     public void run(String... args) throws Exception {
         if (props.exportDir() == null) return;
-        Path out = Path.of(props.exportDir());
+        export(Path.of(props.exportDir()));
+        System.exit(SpringApplication.exit(context, () -> 0));
+    }
+
+    /** Records every scenario into {@code out}, after one discarded warm-up run. */
+    void export(Path out) throws IOException, InterruptedException {
         List<Scenario> scenarios = files.load();
         // A discarded first run: on a cold JVM the first scenario's requests can be slow enough to pass
         // the read timeout, so the first recording would show timeouts the scenario does not inject.
@@ -53,6 +59,5 @@ public class ExportRunner implements CommandLineRunner {
             log.info("Executed {} -> {}", scenario.id(), result.get("record"));
         }
         files.write(out, "index.json", index);
-        System.exit(SpringApplication.exit(context, () -> 0));
     }
 }
