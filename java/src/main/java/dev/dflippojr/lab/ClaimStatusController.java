@@ -15,7 +15,8 @@ import org.springframework.web.bind.annotation.RestController;
  * holds the request past the client's read timeout without processing it, a "lost ack"
  * processes the event and then holds the response so the client never sees it, and an
  * out-of-order delay holds the request before processing it, like a slow network: the client's
- * read timeout is already running, as the engine's ack timeout runs from the send.
+ * read timeout is already running, as the engine's ack timeout runs from the send. A delayed
+ * request is counted in {@link RunContext} until it is processed, so its run waits for it.
  */
 @RestController
 public class ClaimStatusController {
@@ -39,31 +40,44 @@ public class ClaimStatusController {
     public ResponseEntity<Void> receive(@PathVariable String claimId,
                                         @RequestHeader("X-Attempt") int attempt,
                                         @RequestBody Map<String, Object> body) throws InterruptedException {
+        Reply reply;
+        run.processingStarted();
+        try {
+            reply = process(fromBody(claimId, body), attempt);
+        } finally {
+            run.processingFinished();
+        }
+        // Holding a timeout or lost ack changes nothing, so the run need not wait for it.
+        Thread.sleep(reply.holdMs());
+        return ResponseEntity.status(reply.status()).build();
+    }
+
+    /** What to send back, and how long to hold it first. */
+    private record Reply(int status, long holdMs) {
+    }
+
+    private Reply process(ClaimEvent event, int attempt) throws InterruptedException {
         Scenario scenario = run.scenario();
         Trace trace = run.trace();
-        ClaimEvent event = fromBody(claimId, body);
-
         if (scenario.failures().delayed(event.type(), attempt)) {
             Thread.sleep(props.reorderDelayMs());
         }
         if (scenario.failures().timesOut(event.type(), attempt)) {
-            Thread.sleep(props.timeoutMs() * 2);
-            return ResponseEntity.status(504).build();
+            return new Reply(504, props.timeoutMs() * 2);
         }
         ClaimStore.Outcome outcome = store.receive(event, scenario.safeguards(), trace);
         if (outcome == ClaimStore.Outcome.FAIL) {
-            return ResponseEntity.status(500).build();
+            return new Reply(500, 0);
         }
         if (outcome == ClaimStore.Outcome.REJECT) {
-            return ResponseEntity.status(422).build();
+            return new Reply(422, 0);
         }
         if (scenario.failures().losesAck(event.type(), attempt)) {
             trace.log("downstream", "ack-lost", event, "attempt", attempt);
-            Thread.sleep(props.timeoutMs() * 2);
-            return ResponseEntity.ok().build();
+            return new Reply(200, props.timeoutMs() * 2);
         }
         trace.log("downstream", "ack", event, "attempt", attempt);
-        return ResponseEntity.ok().build();
+        return new Reply(200, 0);
     }
 
     @SuppressWarnings("unchecked")
