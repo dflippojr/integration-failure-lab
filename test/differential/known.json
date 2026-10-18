@@ -1,12 +1,5 @@
 [
   {
-    "issue": "https://github.com/dflippojr/integration-failure-lab/issues/99",
-    "summary": "Replay after fix: the engine drains the whole DLQ on the first entry's timer; Java replays each entry after its own delay.",
-    "combinations": [
-      "timeout-accepted-first+ackloss-submitted+reorder-accepted__retry0+backoff-none+ordering+replayAfterFix"
-    ]
-  },
-  {
     "issue": "https://github.com/dflippojr/integration-failure-lab/issues/104",
     "summary": "Out-of-order delay: the engine delays arrival with the ack timeout already running; Java delays the send, so its timeout starts later.",
     "combinations": [
