@@ -20,7 +20,7 @@ class ScenarioFilesTest {
 
     private ScenarioFiles files(Path scenariosDir) {
         return new ScenarioFiles(JsonMapper.builder().build(),
-                new LabProperties(scenariosDir.toString(), null, 0, 0, null, 0, 0));
+                new LabProperties(scenariosDir.toString(), null, 0, 0, null, 0, 0, null, null, 0));
     }
 
     @Test
