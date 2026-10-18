@@ -25,6 +25,9 @@ class ScenarioRunnerTest {
     @Autowired
     ScenarioRunner runner;
 
+    @Autowired
+    LabProperties props;
+
     @TestFactory
     Stream<DynamicTest> everyScenarioMatchesItsExpectation() throws Exception {
         List<Scenario> scenarios = files.load();
@@ -85,6 +88,35 @@ class ScenarioRunnerTest {
         assertThat(record.get("applied")).isEqualTo(List.of("E1", "E2", "E3"));
         assertThat(ids(result.get("dlq"))).isEmpty();
         assertThat(kinds(result)).contains("replay");
+    }
+
+    /** Parity with test/engine.test.js (#99): each DLQ entry is replayed replayDelayMs after its own parking. */
+    @Test
+    void twoDeadLetteredEventsAreEachReplayedAfterTheirOwnDelay() throws Exception {
+        Scenario scenario = Scenario.fromMap(Map.of(
+                "id", "lead1-drain",
+                "failures", Map.of(
+                        "timeout", Map.of("event", "ClaimAccepted", "attempts", "all"),
+                        "poison", Map.of("event", "ClaimPaid")),
+                "safeguards", Map.of("retryLimit", 0, "replayAfterFix", true)));
+        Map<String, Object> result = runner.run(scenario);
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> trace = (List<Map<String, Object>>) result.get("trace");
+        for (String id : List.of("E2", "E3")) {
+            long parked = time(trace.get(rowIndex(trace, id, "dead-letter", null)));
+            long replayed = time(trace.get(rowIndex(trace, id, "replay", null)));
+            assertThat(replayed - parked).as("%s replay delay: %s", id, trace).isGreaterThanOrEqualTo(props.replayDelayMs());
+        }
+        assertThat(rowIndex(trace, "E3", "replay", null)).isLessThan(rowIndex(trace, "E2", "replay", null));
+        assertThat(ids(result.get("dlq"))).isEqualTo(List.of("E2"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> record = (Map<String, Object>) result.get("record");
+        assertThat(record.get("status")).isEqualTo("Paid");
+        assertThat(record.get("applied")).isEqualTo(List.of("E1", "E3"));
+    }
+
+    private static long time(Map<String, Object> row) {
+        return ((Number) row.get("t")).longValue();
     }
 
     private static void reorderDelayIsNetworkTimeAfterTheSend(Map<String, Object> result) {

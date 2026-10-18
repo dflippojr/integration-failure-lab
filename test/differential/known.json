@@ -1,9 +1,1 @@
-[
-  {
-    "issue": "https://github.com/dflippojr/integration-failure-lab/issues/99",
-    "summary": "Replay after fix: the engine drains the whole DLQ on the first entry's timer; Java replays each entry after its own delay.",
-    "combinations": [
-      "timeout-accepted-first+ackloss-submitted+reorder-accepted__retry0+backoff-none+ordering+replayAfterFix"
-    ]
-  }
-]
+[]

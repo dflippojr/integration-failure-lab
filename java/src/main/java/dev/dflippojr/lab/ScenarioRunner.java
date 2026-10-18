@@ -295,7 +295,10 @@ public class ScenarioRunner {
             }
         }
 
-        /** The producer fix has shipped: take the message out of the DLQ and deliver the corrected original afresh. */
+        /**
+         * The producer fix has shipped: take this entry (only) out of the DLQ and deliver the corrected original afresh.
+         * Each entry has its own timer, replayDelayMs after it was parked, as in engine/engine.js.
+         */
         private void replay(ClaimEvent poisoned, Map<String, Object> entry) {
             dlq.remove(entry);
             ClaimEvent fixed = originals.get(poisoned.eventId());
