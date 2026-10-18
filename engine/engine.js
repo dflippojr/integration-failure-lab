@@ -6,7 +6,7 @@ export const TIMING = Object.freeze({
   latencyMs: 50,         // one-way delivery time for a healthy attempt
   timeoutMs: 2000,       // sender gives up waiting for an ack after this long
   backoffBaseMs: 1000,
-  replayAfterMs: 5000,   // the producer fix ships and the DLQ is replayed this long after it fills
+  replayAfterMs: 5000,   // each dead-lettered message is replayed this long after it was parked (the producer fix has shipped)
 });
 
 export const DEFAULT_SAFEGUARDS = Object.freeze({
@@ -16,7 +16,7 @@ export const DEFAULT_SAFEGUARDS = Object.freeze({
   ordering: false,           // buffer ahead-of-sequence events, drop stale ones
   schemaValidation: false,   // reject payloads missing required fields
   deadLetter: true,          // park messages that give up instead of dropping them
-  replayAfterFix: false,     // after the producer fix, replay the DLQ once with a fresh attempt count
+  replayAfterFix: false,     // after the producer fix, replay each DLQ entry once, replayAfterMs after it was parked, with a fresh attempt count
 });
 
 const CLAIM_ID = 'C-1001';
@@ -144,11 +144,12 @@ export function run(scenario, overrides = {}) {
 
   function giveUp(t, e, attempt, reason) {
     if (guards.deadLetter) {
-      dlq.push({ eventId: e.eventId, eventType: e.type, reason, attempts: attempt });
+      const entry = { eventId: e.eventId, eventType: e.type, reason, attempts: attempt };
+      dlq.push(entry);
       log(t, 'queue', 'dead-letter', e, { attempt, note: reason });
       if (guards.replayAfterFix && !replayed.has(e.eventId)) {
         replayed.add(e.eventId);
-        at(t + TIMING.replayAfterMs, now => replayDlq(now));
+        at(t + TIMING.replayAfterMs, now => replay(now, entry));
       }
     } else {
       dropped.push({ eventId: e.eventId, eventType: e.type, reason, attempts: attempt });
@@ -166,13 +167,13 @@ export function run(scenario, overrides = {}) {
     }
   }
 
-  function replayDlq(t) {
-    for (const entry of dlq.splice(0)) {
-      const e = events.find(x => x.eventId === entry.eventId);
-      e.payload = original[e.eventId] ?? e.payload;
-      log(t, 'queue', 'replay', e, { note: 'producer fix shipped, replaying from the dead-letter queue' });
-      send(t, e, 1);
-    }
+  // The producer fix has shipped: take this entry (only) out of the DLQ and deliver the corrected original afresh.
+  function replay(t, entry) {
+    dlq.splice(dlq.indexOf(entry), 1);
+    const e = events.find(x => x.eventId === entry.eventId);
+    e.payload = original[e.eventId] ?? e.payload;
+    log(t, 'queue', 'replay', e, { note: 'producer fix shipped, replaying from the dead-letter queue' });
+    send(t, e, 1);
   }
 
   function send(t, e, attempt) {

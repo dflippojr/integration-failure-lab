@@ -31,7 +31,7 @@ Let a visitor see why integration reliability is hard and what the standard fixe
 | Safeguard | Ordering (buffer when `seq` skips; drop stale `seq`) | off |
 | Safeguard | Schema validation at the consumer (reject, don't guess) | off |
 | Safeguard | Dead-letter queue for messages that give up | on |
-| Safeguard | Replay the DLQ once after the producer fix (scenario 6b; not a Free-form control) | off |
+| Safeguard | Replay after the producer fix: each DLQ entry is replayed once, a fixed delay after it was parked, with a fresh attempt count (scenario 6b; not a Free-form control) | off |
 
 ## Outputs the visitor sees
 
