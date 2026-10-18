@@ -57,9 +57,9 @@ public class ScenarioRunner {
     private Map<String, Object> run(Scenario scenario, HttpClient http) throws InterruptedException {
         // Exercise the event endpoint's JSON binding and header conversion before the scenario
         // clock starts. A health GET does not initialize this path. No injected faults apply here.
-        context.begin(Scenario.fromMap(Map.of("id", "warm-up")), new Trace(), store.reset());
+        RunContext.Run warmup = context.begin(Scenario.fromMap(Map.of("id", "warm-up")), new Trace(), store.reset());
         long warmupStart = System.nanoTime();
-        postEvent(client(http, Duration.ofSeconds(10)), ClaimEvent.sequence().getFirst(), 1);
+        postEvent(client(http, Duration.ofSeconds(10)), ClaimEvent.sequence().getFirst(), 1, warmup.epoch());
         long warmupMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - warmupStart);
         RestClient client = client(http, Duration.ofMillis(props.timeoutMs()));
 
@@ -67,7 +67,7 @@ public class ScenarioRunner {
         RunContext.Run run = context.begin(scenario, trace, store.reset());
 
         ScheduledExecutorService scheduler = newDeliveryScheduler();
-        Delivery delivery = new Delivery(client, scenario, trace, scheduler);
+        Delivery delivery = new Delivery(client, scenario, trace, run.epoch(), scheduler);
         try {
             List<ClaimEvent> events = ClaimEvent.sequence();
             events.forEach(e -> delivery.originals.put(e.eventId(), e));
@@ -166,7 +166,11 @@ public class ScenarioRunner {
                 .build();
     }
 
-    private static void postEvent(RestClient client, ClaimEvent event, int attempt) {
+    /**
+     * Posts one attempt, tagged with the epoch of the run that sent it, so the downstream can tell a request
+     * that arrives after its run has ended, even one held up before it reached the handler.
+     */
+    private static void postEvent(RestClient client, ClaimEvent event, int attempt, long runEpoch) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("eventId", event.eventId());
         body.put("type", event.type());
@@ -175,6 +179,7 @@ public class ScenarioRunner {
         body.put("payload", event.payload());
         client.post().uri("/claims/{id}/events", event.claimId())
                 .header("X-Attempt", String.valueOf(attempt))
+                .header(ClaimStatusController.RUN_HEADER, String.valueOf(runEpoch))
                 .body(body).retrieve().toBodilessEntity();
     }
 
@@ -187,16 +192,18 @@ public class ScenarioRunner {
         private final RestClient client;
         private final Scenario scenario;
         private final Trace trace;
+        private final long runEpoch;
         /** Events not yet applied, dead-lettered without a pending replay, or dropped. Guarded by {@code this}. */
         private int unsettled = 3;
         /** The first failure of the run; later ones are attached to it as suppressed. Guarded by {@code this}. */
         private Exception primary;
 
-        Delivery(RestClient client, Scenario scenario, Trace trace, ScheduledExecutorService scheduler) {
+        Delivery(RestClient client, Scenario scenario, Trace trace, long runEpoch, ScheduledExecutorService scheduler) {
             this.scheduler = scheduler;
             this.client = client;
             this.scenario = scenario;
             this.trace = trace;
+            this.runEpoch = runEpoch;
         }
 
         /**
@@ -268,7 +275,7 @@ public class ScenarioRunner {
         private void post(ClaimEvent event, int attempt) {
             trace.log("queue", "send", event, "attempt", attempt);
             try {
-                postEvent(client, event, attempt);
+                postEvent(client, event, attempt, runEpoch);
                 settled();
             } catch (HttpClientErrorException rejected) {
                 giveUp(event, attempt, "rejected as non-retryable");
