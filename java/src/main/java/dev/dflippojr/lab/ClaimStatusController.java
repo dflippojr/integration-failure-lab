@@ -16,7 +16,8 @@ import org.springframework.web.bind.annotation.RestController;
  * processes the event and then holds the response so the client never sees it, and an
  * out-of-order delay holds the request before processing it, like a slow network: the client's
  * read timeout is already running, as the engine's ack timeout runs from the send. A delayed
- * request is counted in {@link RunContext} until it is processed, so its run waits for it.
+ * request is counted in its {@link RunContext.Run} until it is processed, so its run waits for it,
+ * and the store drops it if a later run has reset the store in the meantime.
  */
 @RestController
 public class ClaimStatusController {
@@ -40,12 +41,13 @@ public class ClaimStatusController {
     public ResponseEntity<Void> receive(@PathVariable String claimId,
                                         @RequestHeader("X-Attempt") int attempt,
                                         @RequestBody Map<String, Object> body) throws InterruptedException {
+        RunContext.Run owner = run.current();
         Reply reply;
-        run.processingStarted();
+        owner.processingStarted();
         try {
-            reply = process(fromBody(claimId, body), attempt);
+            reply = process(fromBody(claimId, body), attempt, owner);
         } finally {
-            run.processingFinished();
+            owner.processingFinished();
         }
         // Holding a timeout or lost ack changes nothing, so the run need not wait for it.
         Thread.sleep(reply.holdMs());
@@ -56,16 +58,20 @@ public class ClaimStatusController {
     private record Reply(int status, long holdMs) {
     }
 
-    private Reply process(ClaimEvent event, int attempt) throws InterruptedException {
-        Scenario scenario = run.scenario();
-        Trace trace = run.trace();
+    private Reply process(ClaimEvent event, int attempt, RunContext.Run owner) throws InterruptedException {
+        Scenario scenario = owner.scenario();
+        Trace trace = owner.trace();
         if (scenario.failures().delayed(event.type(), attempt)) {
             Thread.sleep(props.reorderDelayMs());
         }
         if (scenario.failures().timesOut(event.type(), attempt)) {
             return new Reply(504, props.timeoutMs() * 2);
         }
-        ClaimStore.Outcome outcome = store.receive(event, scenario.safeguards(), trace);
+        ClaimStore.Outcome outcome = store.receive(event, scenario.safeguards(), trace, owner.epoch());
+        if (outcome == ClaimStore.Outcome.STALE) {
+            // Its run has ended and a later run owns the store; no client is waiting for this reply.
+            return new Reply(409, 0);
+        }
         if (outcome == ClaimStore.Outcome.FAIL) {
             return new Reply(500, 0);
         }

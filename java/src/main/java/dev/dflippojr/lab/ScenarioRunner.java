@@ -57,16 +57,14 @@ public class ScenarioRunner {
     private Map<String, Object> run(Scenario scenario, HttpClient http) throws InterruptedException {
         // Exercise the event endpoint's JSON binding and header conversion before the scenario
         // clock starts. A health GET does not initialize this path. No injected faults apply here.
-        context.begin(Scenario.fromMap(Map.of("id", "warm-up")), new Trace());
-        store.reset();
+        context.begin(Scenario.fromMap(Map.of("id", "warm-up")), new Trace(), store.reset());
         long warmupStart = System.nanoTime();
         postEvent(client(http, Duration.ofSeconds(10)), ClaimEvent.sequence().getFirst(), 1);
         long warmupMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - warmupStart);
         RestClient client = client(http, Duration.ofMillis(props.timeoutMs()));
 
         Trace trace = new Trace();
-        store.reset();
-        context.begin(scenario, trace);
+        RunContext.Run run = context.begin(scenario, trace, store.reset());
 
         ScheduledExecutorService scheduler = newDeliveryScheduler();
         Delivery delivery = new Delivery(client, scenario, trace, scheduler);
@@ -85,7 +83,7 @@ public class ScenarioRunner {
             delivery.thrown(failure);
             throw failure;
         } finally {
-            quiesce(scheduler, delivery);
+            quiesce(scheduler, delivery, run);
         }
         delivery.rethrowFailure();
 
@@ -121,18 +119,21 @@ public class ScenarioRunner {
      * Drops queued emissions, interrupts in-flight work and waits a bounded time for it, so failures
      * from tasks that were already running are recorded before the caller sees the outcome. Then waits
      * for the downstream to finish requests the client gave up on, such as an out-of-order delay longer
-     * than the read timeout, so they land in this run and not in the next one.
+     * than the read timeout, so they land in this run. If that wait runs out or is interrupted, the run
+     * fails, and a request still running is dropped by the store once the next run has reset it.
      */
-    private void quiesce(ScheduledExecutorService scheduler, Delivery delivery) {
+    private void quiesce(ScheduledExecutorService scheduler, Delivery delivery, RunContext.Run run) {
         scheduler.shutdownNow();
         try {
             if (!scheduler.awaitTermination(QUIESCE_SECONDS, TimeUnit.SECONDS)) {
                 delivery.fail(new IllegalStateException("delivery workers did not stop"));
             }
-            if (!context.awaitIdle(Duration.ofSeconds(QUIESCE_SECONDS))) {
+            if (!run.awaitIdle(Duration.ofSeconds(QUIESCE_SECONDS))) {
                 delivery.fail(new IllegalStateException("downstream requests did not finish"));
             }
         } catch (InterruptedException interrupted) {
+            // Events may still be in flight, so the run must not return a result.
+            delivery.fail(new IllegalStateException("cleanup was interrupted", interrupted));
             Thread.currentThread().interrupt();
         }
     }
