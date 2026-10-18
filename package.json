@@ -12,6 +12,7 @@
     "ui:stop": "node checks/ui-instance.mjs stop",
     "test:ui": "playwright test",
     "differential": "node scripts/differential.mjs",
+    "recordings": "node scripts/recordings.mjs",
     "demo:render": "node demo/render.mjs"
   },
   "engines": {
