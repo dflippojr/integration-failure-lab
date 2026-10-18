@@ -234,20 +234,21 @@ public class ScenarioRunner {
      */
     private static final class Step {
         static final Comparator<Step> ORDER = Comparator.<Step>comparingLong(s -> s.due)
-                .thenComparingInt(s -> s.seq).thenComparingLong(s -> s.order);
+                .thenComparingInt(s -> s.seq).thenComparingLong(s -> s.created);
 
         long due;
         final int seq;
-        final long order;
+        /** Creation number: the last tie-breaker. */
+        final long created;
         final String what;
         Runnable task;
         /** Its wall-clock time has come, or, for an answer, the answer is in. */
         boolean ready;
 
-        Step(long due, int seq, long order, String what, Runnable task) {
+        Step(long due, int seq, long created, String what, Runnable task) {
             this.due = due;
             this.seq = seq;
-            this.order = order;
+            this.created = created;
             this.what = what;
             this.task = task;
         }
