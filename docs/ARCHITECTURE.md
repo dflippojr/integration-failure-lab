@@ -24,7 +24,7 @@ Let a visitor see why integration reliability is hard and what the standard fixe
 | --- | --- | --- |
 | Failure | Downstream timeout (which attempt(s) time out) | off |
 | Failure | Duplicate delivery (ack lost, message redelivered) | off |
-| Failure | Out-of-order delivery (swap two events) | off |
+| Failure | Out-of-order delivery (delay one chosen event by 500 ms so it arrives after the next one) | off |
 | Failure | Schema change (producer renames `paidAmount` to `amountPaid`) | off |
 | Safeguard | Retry limit (0–5) and backoff (none / fixed / exponential) | 3, exponential |
 | Safeguard | Idempotency (dedupe on `eventId`) | off |
