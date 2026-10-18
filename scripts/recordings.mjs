@@ -19,7 +19,7 @@ export const RERECORD = 'cd java && ./mvnw -B package -DskipTests && java -jar t
 // Keys sorted at every level, so a recording reads the same whatever order the runner wrote its keys in.
 function sorted(value) {
   if (Array.isArray(value)) return value.map(sorted);
-  if (value && typeof value === 'object') return Object.fromEntries(Object.keys(value).sort().map(k => [k, sorted(value[k])]));
+  if (value && typeof value === 'object') return Object.fromEntries(Object.keys(value).sort((a, b) => a.localeCompare(b)).map(k => [k, sorted(value[k])]));
   return value;
 }
 
@@ -57,7 +57,7 @@ export function lineDiff(a, b, context = 3) {
 }
 
 const readJson = (dir, file) => JSON.parse(readFileSync(join(dir, file), 'utf8'));
-const jsonFiles = dir => readdirSync(dir).filter(f => f.endsWith('.json')).sort();
+const jsonFiles = dir => readdirSync(dir).filter(f => f.endsWith('.json')).sort((a, b) => a.localeCompare(b));
 
 // Compares the committed recordings with fresh ones: a list of { file, problem, fields?, diff? }, empty when they agree.
 export function compareRecordings(committedDir, freshDir) {
@@ -71,7 +71,7 @@ export function compareRecordings(committedDir, freshDir) {
     const b = normalise(readJson(freshDir, file));
     const fields = Array.isArray(a)
       ? (JSON.stringify(a) === JSON.stringify(b) ? [] : ['index'])
-      : [...new Set([...Object.keys(a), ...Object.keys(b)])].sort().filter(k => JSON.stringify(a[k]) !== JSON.stringify(b[k]));
+      : [...new Set([...Object.keys(a), ...Object.keys(b)])].sort((x, y) => x.localeCompare(y)).filter(k => JSON.stringify(a[k]) !== JSON.stringify(b[k]));
     if (fields.length) drift.push({ file, problem: 'behaviour differs', fields, diff: lineDiff(JSON.stringify(a, null, 2), JSON.stringify(b, null, 2)) });
   }
   return drift;
