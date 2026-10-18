@@ -13,6 +13,15 @@ export default [
     ],
   },
   js.configs.recommended,
+  // A file URL's pathname is not a filesystem path (/C:/... on Windows, %20 for a space); convert with fileURLToPath.
+  {
+    rules: {
+      'no-restricted-syntax': ['error', {
+        selector: "MemberExpression[property.name='pathname'][object.callee.name='URL']",
+        message: 'Use fileURLToPath(new URL(...)) for a filesystem path, not .pathname.',
+      }],
+    },
+  },
   // engine/ is pure and runs in both the browser and Node, so it gets no host globals.
   { files: ['ui/**/*.js'], languageOptions: { globals: globals.browser } },
   { files: ['scripts/**', 'checks/**', 'test/**', 'demo/**', '*.config.js'], languageOptions: { globals: globals.node } },
