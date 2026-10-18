@@ -28,7 +28,7 @@ public class ScenarioFiles {
     public List<Scenario> load() throws IOException {
         try (Stream<Path> files = Files.list(Path.of(props.scenariosDir()))) {
             return files.filter(p -> p.toString().endsWith(".json"))
-                    .map(p -> Scenario.fromMap(json.readValue(p.toFile(), Map.class)))
+                    .map(p -> Scenario.fromFile(json.readValue(p.toFile(), Map.class)))
                     .sorted(Comparator.comparingInt(Scenario::order))
                     .toList();
         }

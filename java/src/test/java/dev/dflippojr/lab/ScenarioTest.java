@@ -70,9 +70,19 @@ class ScenarioTest {
         // The id becomes <id>.json in the export directory, so "../x" used to write outside it.
         Map<String, Object> json = new HashMap<>();
         if (id != null) json.put("id", id);
-        assertThatThrownBy(() -> Scenario.fromMap(json))
+        assertThatThrownBy(() -> Scenario.fromFile(json))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage(prefix + ": id must be lowercase letters, digits and single hyphens");
+    }
+
+    @Test
+    void aDifferentialCombinationIdIsNotAFileNameSoItStillParses() {
+        // Differential combinations stay in memory; only scenarios loaded from files go through the id-shape rule.
+        Map<String, Object> combination = Map.of("id", "timeout-paid-all__retry0+no-deadLetter",
+                "failures", Map.of("timeout", Map.of("event", "ClaimPaid", "attempts", "all")),
+                "safeguards", Map.of("retryLimit", 0, "deadLetter", false));
+        assertThat(Scenario.fromMap(combination).id()).isEqualTo("timeout-paid-all__retry0+no-deadLetter");
+        assertThatThrownBy(() -> Scenario.fromFile(combination)).isInstanceOf(IllegalArgumentException.class);
     }
 
     static Stream<Arguments> backoffSchedules() {
