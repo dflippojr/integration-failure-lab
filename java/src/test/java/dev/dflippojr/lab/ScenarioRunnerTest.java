@@ -73,6 +73,21 @@ class ScenarioRunnerTest {
         }));
     }
 
+    /** Recordings keep one key order across JVMs, so a re-recorded executed/ file only differs where behaviour does. */
+    @Test
+    void recordedSettingsKeepAFixedKeyOrder() throws Exception {
+        Map<String, Object> result = runner.run(files.load().getFirst());
+        assertThat(keys(result.get("runtime"))).containsExactly("transport", "java", "springBoot");
+        assertThat(keys(result.get("timing"))).containsExactly("timeoutMs", "backoffBaseMs", "sendAtMs", "reorderDelayMs");
+        assertThat(keys(result.get("guards"))).containsExactly("retryLimit", "backoff", "idempotency", "ordering",
+                "schemaValidation", "deadLetter", "replayAfterFix");
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<String> keys(Object map) {
+        return List.copyOf(((Map<String, Object>) map).keySet());
+    }
+
     /** Parity with test/engine.test.js: the replay after the producer fix carries the original payload. */
     @Test
     void schemaChangeReplayAfterFixDeliversTheOriginalPayload() throws Exception {

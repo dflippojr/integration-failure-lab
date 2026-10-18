@@ -92,10 +92,18 @@ public class ScenarioRunner {
         result.put("mode", "executed");
         result.put("generatedAt", Instant.now().toString());
         result.put("warmupMs", warmupMs);
-        result.put("runtime", Map.of("java", Runtime.version().toString(), "springBoot", SpringBootVersion.getVersion(),
-                "transport", "HTTP/1.1 on localhost (JDK HttpClient -> embedded Tomcat)"));
-        result.put("timing", Map.of("timeoutMs", props.timeoutMs(), "backoffBaseMs", props.backoffBaseMs(),
-                "sendAtMs", props.sendAtMs(), "reorderDelayMs", props.reorderDelayMs()));
+        // LinkedHashMap rather than Map.of, whose iteration order changes from one JVM to the next.
+        Map<String, Object> runtime = new LinkedHashMap<>();
+        runtime.put("transport", "HTTP/1.1 on localhost (JDK HttpClient -> embedded Tomcat)");
+        runtime.put("java", Runtime.version().toString());
+        runtime.put("springBoot", SpringBootVersion.getVersion());
+        result.put("runtime", runtime);
+        Map<String, Object> timing = new LinkedHashMap<>();
+        timing.put("timeoutMs", props.timeoutMs());
+        timing.put("backoffBaseMs", props.backoffBaseMs());
+        timing.put("sendAtMs", props.sendAtMs());
+        timing.put("reorderDelayMs", props.reorderDelayMs());
+        result.put("timing", timing);
         result.put("guards", scenario.safeguards().asMap());
         result.put("trace", trace.rows());
         result.put("record", store.record());

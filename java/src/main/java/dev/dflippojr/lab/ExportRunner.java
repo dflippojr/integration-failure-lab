@@ -14,8 +14,8 @@ import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.stereotype.Component;
 
 /**
- * With {@code --lab.export-dir=path}, executes every scenario once, writes {@code <id>.json} plus an
- * {@code index.json}, and exits. Without it, the app just serves the downstream for manual poking.
+ * With {@code --lab.export-dir=path}, warms up with one discarded run, executes every scenario once,
+ * writes {@code <id>.json} plus an {@code index.json}, and exits. Without it, the app just serves the downstream for manual poking.
  */
 @Component
 public class ExportRunner implements CommandLineRunner {
@@ -38,8 +38,12 @@ public class ExportRunner implements CommandLineRunner {
     public void run(String... args) throws Exception {
         if (props.exportDir() == null) return;
         Path out = Path.of(props.exportDir());
+        List<Scenario> scenarios = files.load();
+        // A discarded first run: on a cold JVM the first scenario's requests are slow enough that later
+        // emissions overtake them, so the first recording would show a different interleaving.
+        runner.run(scenarios.getFirst());
         List<Map<String, Object>> index = new ArrayList<>();
-        for (Scenario scenario : files.load()) {
+        for (Scenario scenario : scenarios) {
             Map<String, Object> result = runner.run(scenario);
             files.write(out, scenario.id() + ".json", result);
             Map<String, Object> entry = new LinkedHashMap<>();
