@@ -4,9 +4,10 @@ integration-failure-lab has two implementations of one model: the JS engine (`en
 
 ## How to prove a change works
 
-- **`npm run ci:local` is the full gate.** It runs the three jobs that the `gate` check in `.github/workflows/ci.yml` requires, one after another:
+- **`npm run ci:local` is the full gate.** It runs the four jobs that the `gate` check in `.github/workflows/ci.yml` requires, one after another:
   - `npm run lint && npm run test:coverage`: ESLint's recommended rules (`eslint.config.js`), then `npm test` with the Node coverage floors.
   - `./mvnw -B verify -DforkCount=1` in `java/`, including the JaCoCo line-coverage floor.
+  - `./mvnw -B package -DskipTests` in `java/`, then `npm run differential`: every Free-form combination through the engine and the Java runner, failing on any outcome difference that `test/differential/known.json` does not explain.
   - `npm run test:ui -- --workers=1`.
 
   It then always runs `npm run ui:stop`, even after a failure or Ctrl+C. Every step runs even when an earlier one fails, and the summary at the end lists each result. It needs `npm ci`, `npx playwright install chromium webkit` and a Java 21 JDK (`JAVA_HOME` must point at a JDK, not a JRE). Keep the parallelism it uses: Java on one fork and Playwright on one worker.
