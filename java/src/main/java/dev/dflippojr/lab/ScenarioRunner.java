@@ -104,6 +104,7 @@ public class ScenarioRunner {
                     delivery.send(event, 1);
                 });
             }
+            delivery.start();
             delivery.await(scenarioLimit());
         } catch (InterruptedException | RuntimeException failure) {
             delivery.thrown(failure);
@@ -306,6 +307,8 @@ public class ScenarioRunner {
         private long steps;
         /** Requests in transit or being processed. */
         private int moving;
+        /** Every producer emission is on the timeline; until then no step runs (see {@link #start}). */
+        private boolean started;
         private boolean draining;
         private boolean stopped;
         /** The logical time of the step running now; only the thread running it uses this. */
@@ -371,12 +374,24 @@ public class ScenarioRunner {
             }, waitMs);
         }
 
+        /**
+         * Lets the timeline run, once every producer emission is on it. Their timers are armed as they are
+         * added, so a setup thread stalled part way could otherwise let the workers run later steps, such as
+         * a timeout, before an emission due earlier exists.
+         */
+        void start() {
+            synchronized (this) {
+                started = true;
+            }
+            drain();
+        }
+
         /** Runs the steps that may run now, one at a time, on whichever thread got here. */
         private void drain() {
             while (true) {
                 Step next;
                 synchronized (this) {
-                    if (draining || stopped || moving > 0 || timeline.isEmpty() || !timeline.first().ready) return;
+                    if (!started || draining || stopped || moving > 0 || timeline.isEmpty() || !timeline.first().ready) return;
                     next = timeline.pollFirst();
                     now = next.due;
                     draining = true;
