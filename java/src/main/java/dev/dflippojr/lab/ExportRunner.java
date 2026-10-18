@@ -39,8 +39,8 @@ public class ExportRunner implements CommandLineRunner {
         if (props.exportDir() == null) return;
         Path out = Path.of(props.exportDir());
         List<Scenario> scenarios = files.load();
-        // A discarded first run: on a cold JVM the first scenario's requests are slow enough that later
-        // emissions overtake them, so the first recording would show a different interleaving.
+        // A discarded first run: on a cold JVM the first scenario's requests can be slow enough to pass
+        // the read timeout, so the first recording would show timeouts the scenario does not inject.
         runner.run(scenarios.getFirst());
         List<Map<String, Object>> index = new ArrayList<>();
         for (Scenario scenario : scenarios) {

@@ -5,12 +5,16 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeSet;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
@@ -59,7 +63,7 @@ public class ScenarioRunner {
         // clock starts. A health GET does not initialize this path. No injected faults apply here.
         RunContext.Run warmup = context.begin(Scenario.fromMap(Map.of("id", "warm-up")), new Trace(), store.reset());
         long warmupStart = System.nanoTime();
-        postEvent(client(http, Duration.ofSeconds(10)), ClaimEvent.sequence().getFirst(), 1, warmup.epoch());
+        postEvent(client(http, Duration.ofSeconds(10)), ClaimEvent.sequence().getFirst(), 1, warmup.epoch(), 1);
         long warmupMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - warmupStart);
         RestClient client = client(http, Duration.ofMillis(props.timeoutMs()));
 
@@ -67,16 +71,18 @@ public class ScenarioRunner {
         RunContext.Run run = context.begin(scenario, trace, store.reset());
 
         ScheduledExecutorService scheduler = newDeliveryScheduler();
-        Delivery delivery = new Delivery(client, scenario, trace, run.epoch(), scheduler);
+        Delivery delivery = new Delivery(client, scenario, trace, run, scheduler);
+        run.attach(delivery);
         try {
             List<ClaimEvent> events = ClaimEvent.sequence();
             events.forEach(e -> delivery.originals.put(e.eventId(), e));
             for (int i = 0; i < events.size(); i++) {
                 ClaimEvent event = producerPayload(events.get(i), scenario.failures());
-                delivery.schedule("producer emission of " + describe(event), () -> {
+                long sendAt = props.sendAtMs().get(i);
+                delivery.at(sendAt, sendAt, event, "producer emission of " + describe(event), () -> {
                     trace.log("producer", "emit", event, "seq", event.seq());
                     delivery.send(event, 1);
-                }, props.sendAtMs().get(i));
+                });
             }
             delivery.await(scenarioLimit());
         } catch (InterruptedException | RuntimeException failure) {
@@ -132,6 +138,7 @@ public class ScenarioRunner {
      */
     private void quiesce(ScheduledExecutorService scheduler, Delivery delivery, RunContext.Run run) {
         scheduler.shutdownNow();
+        delivery.stop();
         try {
             if (!scheduler.awaitTermination(QUIESCE_SECONDS, TimeUnit.SECONDS)) {
                 delivery.fail(new IllegalStateException("delivery workers did not stop"));
@@ -178,7 +185,7 @@ public class ScenarioRunner {
      * Posts one attempt, tagged with the epoch of the run that sent it, so the downstream can tell a request
      * that arrives after its run has ended, even one held up before it reached the handler.
      */
-    private static void postEvent(RestClient client, ClaimEvent event, int attempt, long runEpoch) {
+    private static void postEvent(RestClient client, ClaimEvent event, int attempt, long runEpoch, long send) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("eventId", event.eventId());
         body.put("type", event.type());
@@ -188,10 +195,66 @@ public class ScenarioRunner {
         client.post().uri("/claims/{id}/events", event.claimId())
                 .header("X-Attempt", String.valueOf(attempt))
                 .header(ClaimStatusController.RUN_HEADER, String.valueOf(runEpoch))
+                .header(ClaimStatusController.SEND_HEADER, String.valueOf(send))
                 .body(body).retrieve().toBodilessEntity();
     }
 
-    private final class Delivery {
+    /**
+     * One step of a run on its logical timeline: a producer emission, a retry, a replay, the end of an
+     * out-of-order delay, or what the sender does with an answer or a timeout. Steps run in order of their
+     * logical due time, then event, then creation.
+     */
+    private static final class Step {
+        static final Comparator<Step> ORDER = Comparator.<Step>comparingLong(s -> s.due)
+                .thenComparingInt(s -> s.seq).thenComparingLong(s -> s.order);
+
+        long due;
+        final int seq;
+        final long order;
+        final String what;
+        Runnable task;
+        /** Its wall-clock time has come, or, for an answer, the answer is in. */
+        boolean ready;
+
+        Step(long due, int seq, long order, String what, Runnable task) {
+            this.due = due;
+            this.seq = seq;
+            this.order = order;
+            this.what = what;
+            this.task = task;
+        }
+    }
+
+    /** One HTTP attempt, by the number the runner gave it. */
+    private static final class Request {
+        final long at;
+        final int seq;
+        /** What the sender does next: due at the timeout until the answer is in. */
+        final Step answer;
+        long delayMs;
+        CompletableFuture<Boolean> release;
+        /** In transit or being processed, so the timeline must wait for it. */
+        boolean moving = true;
+        boolean answered;
+        boolean released;
+        boolean processed;
+
+        Request(long at, int seq, Step answer) {
+            this.at = at;
+            this.seq = seq;
+            this.answer = answer;
+        }
+    }
+
+    /**
+     * The at-least-once delivery queue. Its steps run on a logical timeline: each runs once its wall-clock
+     * time has come, every step due before it has run, and no request is in transit or being processed,
+     * that is, each has its answer or is held by an injected fault. So a slow healthy request is never
+     * overtaken, timers cannot fire out of order, and a run's trace order does not depend on the scheduler;
+     * only the injected faults reorder deliveries. Read timeouts stay real: a request that has no answer
+     * by then times out, as one held in transit by a slow network does.
+     */
+    private final class Delivery implements RunContext.Gate {
         final ScheduledExecutorService scheduler;
         final List<Map<String, Object>> dlq = Collections.synchronizedList(new ArrayList<>());
         final List<Map<String, Object>> dropped = Collections.synchronizedList(new ArrayList<>());
@@ -200,18 +263,29 @@ public class ScenarioRunner {
         private final RestClient client;
         private final Scenario scenario;
         private final Trace trace;
-        private final long runEpoch;
-        /** Events not yet applied, dead-lettered without a pending replay, or dropped. Guarded by {@code this}. */
+        private final RunContext.Run run;
+        /** Steps not yet run. Guarded by {@code this}, as are the fields up to {@code primary}. */
+        private final TreeSet<Step> timeline = new TreeSet<>(Step.ORDER);
+        private final Map<Long, Request> requests = new HashMap<>();
+        private long sends;
+        private long steps;
+        /** Requests in transit or being processed. */
+        private int moving;
+        private boolean draining;
+        private boolean stopped;
+        /** The logical time of the step running now; only the thread running it uses this. */
+        private long now;
+        /** Events not yet applied, dead-lettered without a pending replay, or dropped. */
         private int unsettled = 3;
-        /** The first failure of the run; later ones are attached to it as suppressed. Guarded by {@code this}. */
+        /** The first failure of the run; later ones are attached to it as suppressed. */
         private Exception primary;
 
-        Delivery(RestClient client, Scenario scenario, Trace trace, long runEpoch, ScheduledExecutorService scheduler) {
+        Delivery(RestClient client, Scenario scenario, Trace trace, RunContext.Run run, ScheduledExecutorService scheduler) {
             this.scheduler = scheduler;
             this.client = client;
             this.scenario = scenario;
             this.trace = trace;
-            this.runEpoch = runEpoch;
+            this.run = run;
         }
 
         /**
@@ -219,24 +293,169 @@ public class ScenarioRunner {
          * into this delivery, which {@link #await} watches, so nothing is lost to an unobserved future.
          */
         void schedule(String what, Runnable task, long delayMs) {
-            scheduler.schedule(() -> {
-                try {
-                    task.run();
-                } catch (RejectedExecutionException refused) {
-                    if (!scheduler.isShutdown()) fail(taskFailure(what, refused));
-                } catch (RuntimeException | Error unexpected) {
-                    fail(taskFailure(what, unexpected));
-                }
-            }, delayMs, TimeUnit.MILLISECONDS);
+            scheduler.schedule(() -> guard(what, task), delayMs, TimeUnit.MILLISECONDS);
+        }
+
+        /** Runs work whose unexpected failure ends the run, on whichever thread got to it. */
+        private void guard(String what, Runnable task) {
+            try {
+                task.run();
+            } catch (RejectedExecutionException refused) {
+                if (!scheduler.isShutdown()) fail(taskFailure(what, refused));
+            } catch (RuntimeException | Error unexpected) {
+                fail(taskFailure(what, unexpected));
+            }
         }
 
         private IllegalStateException taskFailure(String what, Throwable cause) {
             return new IllegalStateException("Scenario " + scenario.id() + ": " + what + " failed: " + cause, cause);
         }
 
+        /**
+         * Adds a step for the event at logical time {@code due}, in ms from the start of the run, that becomes
+         * ready {@code waitMs} from now. The logical time orders steps; the wait keeps wall-clock timing.
+         */
+        void at(long due, long waitMs, ClaimEvent event, String what, Runnable task) {
+            Step step;
+            synchronized (this) {
+                step = new Step(due, event.seq(), ++steps, what, task);
+                timeline.add(step);
+            }
+            schedule(what, () -> {
+                synchronized (this) {
+                    step.ready = true;
+                }
+                drain();
+            }, waitMs);
+        }
+
+        /** Runs the steps that may run now, one at a time, on whichever thread got here. */
+        private void drain() {
+            while (true) {
+                Step next;
+                synchronized (this) {
+                    if (draining || stopped || moving > 0 || timeline.isEmpty() || !timeline.first().ready) return;
+                    next = timeline.pollFirst();
+                    now = next.due;
+                    draining = true;
+                }
+                try {
+                    guard(next.what, next.task);
+                } finally {
+                    synchronized (this) {
+                        draining = false;
+                    }
+                }
+            }
+        }
+
         /** Posts at once: an out-of-order delay is network time, held by the downstream after the read timeout starts. */
         void send(ClaimEvent event, int attempt) {
-            schedule("delivery of " + describe(event) + " attempt " + attempt, () -> post(event, attempt), 0);
+            String what = "delivery of " + describe(event) + " attempt " + attempt;
+            long id;
+            synchronized (this) {
+                id = ++sends;
+                Step answer = new Step(now + props.timeoutMs(), event.seq(), ++steps, what, null);
+                timeline.add(answer);
+                requests.put(id, new Request(now, event.seq(), answer));
+                moving++;
+            }
+            schedule(what, () -> post(event, attempt, id), 0);
+        }
+
+        private void moving(Request request, boolean moving) {
+            if (request.moving != moving) {
+                request.moving = moving;
+                this.moving += moving ? 1 : -1;
+            }
+        }
+
+        /**
+         * The sender has its answer, or gave up waiting: {@code next} runs as a step at the logical time the
+         * answer came, that is, when the request was sent or its delay ended, or at the timeout.
+         */
+        private void answered(long id, boolean timedOut, Runnable next) {
+            synchronized (this) {
+                Request request = requests.get(id);
+                request.answered = true;
+                timeline.remove(request.answer);
+                if (!timedOut) request.answer.due = request.at + request.delayMs;
+                request.answer.task = next;
+                request.answer.ready = true;
+                timeline.add(request.answer);
+                // The downstream still processes a delayed request its sender gave up on, once the delay ends.
+                moving(request, request.released && !request.processed);
+            }
+            drain();
+        }
+
+        @Override
+        public long delay(long send, long delayMs) throws InterruptedException {
+            long parked = System.nanoTime();
+            Request request;
+            CompletableFuture<Boolean> release = new CompletableFuture<>();
+            synchronized (this) {
+                request = requests.get(send);
+                if (request == null || stopped) return delayMs;
+                request.delayMs = delayMs;
+                request.release = release;
+                moving(request, false);
+            }
+            try {
+                ClaimEvent event = ClaimEvent.sequence().get(request.seq - 1);
+                at(request.at + delayMs, delayMs, event, "end of the delay of request " + send, () -> {
+                    synchronized (this) {
+                        request.released = true;
+                        moving(request, true);
+                    }
+                    release.complete(true);
+                });
+            } catch (RejectedExecutionException stopping) {
+                release.complete(false);
+            }
+            drain();
+            boolean released;
+            try {
+                released = release.get();
+            } catch (ExecutionException impossible) {
+                throw new IllegalStateException(impossible);
+            }
+            // The run stopped first: the downstream waits out the rest of the delay on its own.
+            return released ? 0 : Math.max(0, delayMs - TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - parked));
+        }
+
+        @Override
+        public void held(long send) {
+            synchronized (this) {
+                Request request = requests.get(send);
+                if (request == null) return;
+                request.processed = true;
+                moving(request, false);
+            }
+            drain();
+        }
+
+        @Override
+        public void processed(long send) {
+            synchronized (this) {
+                Request request = requests.get(send);
+                if (request == null) return;
+                request.processed = true;
+                if (request.answered) moving(request, false);
+            }
+            drain();
+        }
+
+        /** Stops the timeline once the run is over; delayed requests then wait out their delays on their own. */
+        void stop() {
+            List<CompletableFuture<Boolean>> releases = new ArrayList<>();
+            synchronized (this) {
+                stopped = true;
+                requests.values().forEach(r -> {
+                    if (r.release != null) releases.add(r.release);
+                });
+            }
+            releases.forEach(release -> release.complete(false));
         }
 
         /** Waits until every event settles, a task fails, the limit passes, or the caller is interrupted. */
@@ -280,23 +499,23 @@ public class ScenarioRunner {
             if (--unsettled == 0) notifyAll();
         }
 
-        private void post(ClaimEvent event, int attempt) {
+        private void post(ClaimEvent event, int attempt, long id) {
             trace.log("queue", "send", event, "attempt", attempt);
             try {
-                postEvent(client, event, attempt, runEpoch);
-                settled();
+                postEvent(client, event, attempt, run.epoch(), id);
+                answered(id, false, this::settled);
             } catch (HttpClientErrorException rejected) {
-                giveUp(event, attempt, "rejected as non-retryable");
+                answered(id, false, () -> giveUp(event, attempt, "rejected as non-retryable"));
             } catch (HttpServerErrorException failed) {
                 if (failed.getStatusCode().value() != 500) {
-                    onTimeout(event, attempt);
+                    answered(id, true, () -> onTimeout(event, attempt));
                 } else {
-                    retryOrGiveUp(event, attempt);
+                    answered(id, false, () -> retryOrGiveUp(event, attempt));
                 }
             } catch (RestClientException timeoutOrServerError) {
                 // shutdownNow interrupts in-flight sends: that is cancellation, not a delivery timeout.
                 if (Thread.currentThread().isInterrupted() || scheduler.isShutdown()) return;
-                onTimeout(event, attempt);
+                answered(id, true, () -> onTimeout(event, attempt));
             }
         }
 
@@ -310,7 +529,7 @@ public class ScenarioRunner {
             if (attempt <= guards.retryLimit()) {
                 long wait = guards.backoffMs(props.backoffBaseMs(), attempt);
                 trace.log("queue", "retry-scheduled", event, "attempt", attempt, "note", "retry in " + wait + " ms");
-                schedule("retry of " + describe(event) + " attempt " + (attempt + 1), () -> send(event, attempt + 1), wait);
+                at(now + wait, wait, event, "retry of " + describe(event) + " attempt " + (attempt + 1), () -> send(event, attempt + 1));
             } else {
                 giveUp(event, attempt, "retry limit (" + guards.retryLimit() + ") reached");
             }
@@ -333,7 +552,7 @@ public class ScenarioRunner {
                 dlq.add(entry);
                 trace.log("queue", "dead-letter", event, "attempt", attempt, "note", reason);
                 if (scenario.safeguards().replayAfterFix() && replayed.add(event.eventId())) {
-                    schedule("replay of " + describe(event), () -> replay(event, entry), props.replayDelayMs());
+                    at(now + props.replayDelayMs(), props.replayDelayMs(), event, "replay of " + describe(event), () -> replay(event, entry));
                     return; // the delivery is not finished until the replay settles
                 }
             } else {
