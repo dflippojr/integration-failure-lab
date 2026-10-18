@@ -12,7 +12,7 @@ const code = text => text.split('\n').filter(line => !line.trimStart().startsWit
 test('the gate guard runs from main under pull_request_target and runs no pull request code', () => {
   const target = code(read('gate-guard-target.yml'));
   const [header, jobs] = target.split('\njobs:\n');
-  assert.match(header, /^on:\n {2}pull_request_target:\n {4}types: \[opened, synchronize, reopened, edited, labeled, unlabeled\]\n/m);
+  assert.match(header, /^on:\n {2}pull_request_target:\n {4}types: \[opened, synchronize, reopened, edited, labeled, unlabeled, closed\]\n/m);
   assert.doesNotMatch(target, /\bpull_request:|workflow_dispatch|\bpush:/);
   assert.match(header, /^permissions:\n {2}contents: read\n {2}issues: read\n {2}pull-requests: read\n {2}checks: write\n\n/m);
   assert.match(header, /group: gate-guard-target-\$\{\{ github\.event\.pull_request\.head\.sha \}\}\n {2}cancel-in-progress: true/);
