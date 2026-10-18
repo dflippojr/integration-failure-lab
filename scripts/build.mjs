@@ -7,9 +7,9 @@
 //   test  dist-test/ (git-ignored), the generated modules the UI tests import
 // Targets are fixed names, never paths, so the build cannot be pointed anywhere else.
 import { readdirSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
-import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { join, resolve } from 'node:path';
+import { runGit } from './git.mjs';
 
 const root = resolve(import.meta.dirname, '..');
 // Resolve esbuild from this checkout's node_modules (run npm ci first).
@@ -26,7 +26,7 @@ switch (target) {
 }
 
 // The stamp is taken before anything is written: HEAD, marked -dirty when the checkout has uncommitted changes.
-const git = (...args) => spawnSync('git', args, { cwd: root, encoding: 'utf8' });
+const git = (...args) => runGit(root, ...args);
 const head = git('rev-parse', '--verify', 'HEAD');
 const status = git('status', '--porcelain');
 let gitCommit = 'unknown';

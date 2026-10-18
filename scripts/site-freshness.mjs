@@ -4,8 +4,8 @@
 // Exits 0 when build.json names ref's commit, 1 when the copy is stale (behind ref, not on ref, unstamped or
 // missing build.json), and 2 on a usage error. Commits are resolved in this checkout, so fetch ref first.
 import { existsSync, readFileSync } from 'node:fs';
-import { spawnSync } from 'node:child_process';
 import { join, resolve } from 'node:path';
+import { runGit } from './git.mjs';
 
 const root = resolve(import.meta.dirname, '..');
 const [dir, ref = 'main'] = process.argv.slice(2);
@@ -13,7 +13,7 @@ if (!dir) {
   console.error('Usage: node scripts/site-freshness.mjs <lab-dir> [ref]');
   process.exit(2);
 }
-const git = (...args) => spawnSync('git', args, { cwd: root, encoding: 'utf8' });
+const git = (...args) => runGit(root, ...args);
 const stale = message => {
   console.log(message);
   process.exit(1);

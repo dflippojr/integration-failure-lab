@@ -96,10 +96,13 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    # Publishes queue rather than cancel, so the newest passing commit always publishes last.
+    # Publishes run one at a time and never cancel. The default queue keeps one pending job and cancels it when
+    # another arrives, which can drop the newest commit; queue: max keeps every one (up to 100). Queued jobs can
+    # start out of commit order, so the ancestry check below skips one older than the release's commit.
     concurrency:
       group: lab-bundle
       cancel-in-progress: false
+      queue: max
     env:
       GH_TOKEN: ${{ github.token }}
       TAG: lab-bundle

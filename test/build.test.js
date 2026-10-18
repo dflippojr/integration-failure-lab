@@ -41,7 +41,7 @@ before(() => {
   lab = join(tmp, 'lab');
   site = join(tmp, 'personal-website', 'public', 'lab');
   mkdirSync(join(lab, 'scripts'), { recursive: true });
-  cpSync(build, join(lab, 'scripts', 'build.mjs'));
+  for (const f of ['build.mjs', 'git.mjs']) cpSync(join(root, 'scripts', f), join(lab, 'scripts', f));
   for (const d of ['engine', 'ui', 'scenarios', 'executed']) cpSync(join(root, d), join(lab, d), { recursive: true });
   cpSync(join(root, 'package.json'), join(lab, 'package.json'));
   writeFileSync(join(lab, '.gitignore'), 'node_modules\n');
