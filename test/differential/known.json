@@ -1,12 +1,5 @@
 [
   {
-    "issue": "https://github.com/dflippojr/integration-failure-lab/issues/103",
-    "summary": "Ordering buffer: the engine lists it in arrival order, Java in seq order.",
-    "combinations": [
-      "timeout-submitted-first+ackloss-accepted+reorder-accepted__retry0+backoff-fixed+idempotency+ordering+replayAfterFix"
-    ]
-  },
-  {
     "issue": "https://github.com/dflippojr/integration-failure-lab/issues/104",
     "summary": "Out-of-order delay: the engine delays arrival with the ack timeout already running; Java delays the send, so its timeout starts later.",
     "combinations": [
