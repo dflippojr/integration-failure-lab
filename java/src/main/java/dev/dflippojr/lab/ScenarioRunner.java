@@ -398,10 +398,13 @@ public class ScenarioRunner {
          * a timeout, before an emission due earlier exists.
          */
         void start() {
+            boolean due;
             synchronized (this) {
                 started = true;
+                due = !timeline.isEmpty() && timeline.first().ready;
             }
-            drain();
+            // Steps run on the scheduler's workers, never on the setup thread, which has no failure handling of theirs.
+            if (due) schedule("timeline", this::drain, 0);
         }
 
         /** Runs the steps that may run now, one at a time, on whichever thread got here. */
