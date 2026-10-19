@@ -4,10 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.File;
 import java.nio.file.Path;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
@@ -58,16 +54,8 @@ class ScenarioRunnerStartupTest {
                 .isEqualTo(behaviour(Path.of("..", "executed", "4-combined.json").toFile()));
     }
 
-    /** What the recordings check compares (scripts/recordings.mjs): everything but wall-clock fields. */
     private Object behaviour(File file) {
-        Map<Object, Object> rest = new LinkedHashMap<>((Map<?, ?>) json.readValue(file, Object.class));
-        rest.keySet().removeAll(Set.of("generatedAt", "warmupMs", "runtime"));
-        rest.computeIfPresent("trace", (k, trace) -> ((List<?>) trace).stream().map(row -> {
-            Map<Object, Object> copy = new LinkedHashMap<>((Map<?, ?>) row);
-            copy.remove("t");
-            return copy;
-        }).toList());
-        return rest;
+        return RecordingBehaviour.of(json.readValue(file, Object.class));
     }
 
     /**

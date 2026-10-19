@@ -5,9 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -60,18 +58,8 @@ class ExportRunnerStallTest {
         }
     }
 
-    /** What the recordings check compares (scripts/recordings.mjs): everything but wall-clock fields. */
     private Object behaviour(File file) {
-        Object value = json.readValue(file, Object.class);
-        if (!(value instanceof Map<?, ?> recording)) return value;
-        Map<Object, Object> rest = new LinkedHashMap<>(recording);
-        rest.keySet().removeAll(Set.of("generatedAt", "warmupMs", "runtime"));
-        rest.computeIfPresent("trace", (k, trace) -> ((List<?>) trace).stream().map(row -> {
-            Map<Object, Object> copy = new LinkedHashMap<>((Map<?, ?>) row);
-            copy.remove("t");
-            return copy;
-        }).toList());
-        return rest;
+        return RecordingBehaviour.of(json.readValue(file, Object.class));
     }
 
     /** Holds the first E2 that reaches the store in each run, the discarded warm-up run included. */

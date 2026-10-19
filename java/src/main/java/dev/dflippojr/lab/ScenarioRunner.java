@@ -366,10 +366,20 @@ public class ScenarioRunner {
         void at(long due, long waitMs, ClaimEvent event, String what, Runnable task) {
             Step step;
             synchronized (this) {
-                step = new Step(due, event.seq(), ++steps, what, task);
-                timeline.add(step);
+                step = add(due, event, what, task);
             }
             ready(step, waitMs);
+        }
+
+        /**
+         * Puts a step that is not ready yet on the timeline. Guarded by {@code this}, so that a caller who
+         * changes what the timeline waits for can put the step that replaces it there in the same hold:
+         * the timeline runs ahead of any step that is not on it.
+         */
+        private Step add(long due, ClaimEvent event, String what, Runnable task) {
+            Step step = new Step(due, event.seq(), ++steps, what, task);
+            timeline.add(step);
+            return step;
         }
 
         /** Makes the step ready {@code waitMs} from now. */
@@ -486,27 +496,31 @@ public class ScenarioRunner {
         public long delay(long send, long delayMs) throws InterruptedException {
             long parked = System.nanoTime();
             Request request;
+            Step end;
             CompletableFuture<Boolean> release = new CompletableFuture<>();
             synchronized (this) {
                 request = requests.get(send);
                 if (request == null || stopped) return delayMs;
                 request.delayMs = delayMs;
                 request.release = release;
-                moving(request, false);
-                if (timeouts == Timeouts.LOGICAL && delayMs >= props.timeoutMs()) timeOut(request);
-            }
-            delayHandedOver(send, release);
-            try {
-                at(request.at + delayMs, delayMs, request.event, "end of the delay of request " + send, () -> {
+                // The timeline stops waiting for the request only as its end is on it; between the two, later
+                // steps, such as a timeout, would run ahead of the end of the delay.
+                end = add(request.at + delayMs, request.event, "end of the delay of request " + send, () -> {
                     synchronized (this) {
                         request.released = true;
                         moving(request, true);
                     }
                     release.complete(true);
                 });
+                moving(request, false);
+                if (timeouts == Timeouts.LOGICAL && delayMs >= props.timeoutMs()) timeOut(request);
+            }
+            try {
+                ready(end, delayMs);
             } catch (RejectedExecutionException stopping) {
                 release.complete(false);
             }
+            delayHandedOver(send, release);
             drain();
             boolean released;
             try {

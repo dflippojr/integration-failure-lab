@@ -16,7 +16,8 @@ final class RecordingBehaviour {
 
     /** The export, as parsed JSON or as {@link ScenarioRunner#run} returned it, without wall-clock fields. */
     static Object of(Object export) {
-        Map<Object, Object> rest = new LinkedHashMap<>((Map<?, ?>) export);
+        if (!(export instanceof Map<?, ?> recording)) return export;
+        Map<Object, Object> rest = new LinkedHashMap<>(recording);
         rest.keySet().removeAll(Set.of("generatedAt", "warmupMs", "runtime"));
         rest.computeIfPresent("trace", (k, trace) -> ((List<?>) trace).stream().map(row -> {
             Map<Object, Object> copy = new LinkedHashMap<>((Map<?, ?>) row);
