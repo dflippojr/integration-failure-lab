@@ -65,7 +65,7 @@ class ScenarioRunnerTest {
                 assertThat(kinds(result)).as("%s forbidden trace kinds", s.id()).doesNotContain("replay", "timeout");
             }
             if (s.id().equals("3a-out-of-order")) {
-                reorderedSendRowsMarkTheHttpAttemptInsteadOfEnqueueing(result);
+                reorderDelayIsNetworkTimeAfterTheSend(result);
             }
             if (s.id().equals("4-combined")) {
                 combinedFailuresDoNotBlockIndependentDeliveries(result);
@@ -119,12 +119,12 @@ class ScenarioRunnerTest {
         return ((Number) row.get("t")).longValue();
     }
 
-    private static void reorderedSendRowsMarkTheHttpAttemptInsteadOfEnqueueing(Map<String, Object> result) {
+    private static void reorderDelayIsNetworkTimeAfterTheSend(Map<String, Object> result) {
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> trace = (List<Map<String, Object>>) result.get("trace");
         assertThat(rowIndex(trace, "E2", "emit", null)).isLessThan(rowIndex(trace, "E3", "emit", null));
-        assertThat(rowIndex(trace, "E3", "send", 1)).isLessThan(rowIndex(trace, "E2", "send", 1));
-        assertThat(rowIndex(trace, "E2", "send", 1)).isLessThan(rowIndex(trace, "E2", "apply", null));
+        assertThat(rowIndex(trace, "E2", "send", 1)).isLessThan(rowIndex(trace, "E3", "send", 1));
+        assertThat(rowIndex(trace, "E3", "apply", null)).isLessThan(rowIndex(trace, "E2", "apply", null));
     }
 
     private static void combinedFailuresDoNotBlockIndependentDeliveries(Map<String, Object> result) {
