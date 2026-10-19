@@ -19,13 +19,17 @@ import org.springframework.web.bind.annotation.RestController;
  * request is counted in its {@link RunContext.Run} until it is processed, so its run waits for it,
  * and the store drops it if a later run has reset the store in the meantime. The runner tags each
  * request with its run's epoch, so a request held up before it reached this handler, which its run
- * never counted, is dropped too when it arrives after its run has ended.
+ * never counted, is dropped too when it arrives after its run has ended. The runner also numbers each
+ * request, so this handler can tell the run's timeline when a request is delayed, held or processed
+ * ({@link RunContext.Gate}); the timeline, not a sleep, ends an out-of-order delay during a run.
  */
 @RestController
 public class ClaimStatusController {
 
     /** The epoch of the run that sent a request; absent when the event comes from outside a run. */
     static final String RUN_HEADER = "X-Run";
+    /** The request's number within its run (see {@link RunContext.Run#arrival}); absent outside a run. */
+    static final String SEND_HEADER = "X-Send";
 
     private final ClaimStore store;
     private final RunContext run;
@@ -46,6 +50,7 @@ public class ClaimStatusController {
     public ResponseEntity<Void> receive(@PathVariable String claimId,
                                         @RequestHeader("X-Attempt") int attempt,
                                         @RequestHeader(name = RUN_HEADER, required = false) Long runEpoch,
+                                        @RequestHeader(name = SEND_HEADER, required = false) Long send,
                                         @RequestBody Map<String, Object> body) throws InterruptedException {
         RunContext.Run owner = run.current();
         if (runEpoch != null && runEpoch != owner.epoch()) {
@@ -55,7 +60,12 @@ public class ClaimStatusController {
         Reply reply;
         owner.processingStarted();
         try {
-            reply = process(fromBody(claimId, body), attempt, owner);
+            reply = process(fromBody(claimId, body), attempt, send, owner);
+            if (reply.holdMs() > 0) {
+                owner.held(send);
+            } else {
+                owner.processed(send);
+            }
         } finally {
             owner.processingFinished();
         }
@@ -68,11 +78,12 @@ public class ClaimStatusController {
     private record Reply(int status, long holdMs) {
     }
 
-    private Reply process(ClaimEvent event, int attempt, RunContext.Run owner) throws InterruptedException {
+    private Reply process(ClaimEvent event, int attempt, Long send, RunContext.Run owner) throws InterruptedException {
         Scenario scenario = owner.scenario();
         Trace trace = owner.trace();
         if (scenario.failures().delayed(event.type(), attempt)) {
-            Thread.sleep(props.reorderDelayMs());
+            // The intended reordering: later requests overtake this one while the run's timeline holds it.
+            owner.delay(send, props.reorderDelayMs());
         }
         if (scenario.failures().timesOut(event.type(), attempt)) {
             return new Reply(504, props.timeoutMs() * 2);

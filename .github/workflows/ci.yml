@@ -1,5 +1,5 @@
 name: ci
-# engine, java, differential, playwright and gate-guard run in parallel; gate is the one check a ruleset requires.
+# engine, java, differential, recordings, playwright and gate-guard run in parallel; gate is the one check a ruleset requires.
 # Run the same steps locally with npm run ci:local.
 on: [push, pull_request]
 permissions:
@@ -50,6 +50,24 @@ jobs:
       - run: ./mvnw -B package -DskipTests
         working-directory: java
       - run: npm run differential
+  # Re-records every scenario with the Java runner into a temp directory; executed/ differing from it in
+  # anything but wall-clock timing (trace, record, dlq, dropped, buffered) fails the job with a diff.
+  recordings:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: maven
+      - run: ./mvnw -B package -DskipTests
+        working-directory: java
+      - run: npm run recordings
   playwright:
     # This repository is public: execute only on GitHub-hosted runners.
     runs-on: ubuntu-latest
@@ -98,7 +116,7 @@ jobs:
       require-owner-label-actor: true
   gate:
     # Always reports, so a failed, cancelled or skipped job above turns gate red instead of leaving it pending.
-    needs: [engine, java, differential, playwright, gate-guard]
+    needs: [engine, java, differential, recordings, playwright, gate-guard]
     if: always()
     runs-on: ubuntu-latest
     steps:

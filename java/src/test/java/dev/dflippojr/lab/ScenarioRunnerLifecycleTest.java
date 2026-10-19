@@ -7,6 +7,7 @@ import java.net.InetSocketAddress;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
@@ -88,6 +89,38 @@ class ScenarioRunnerLifecycleTest {
     }
 
     @Test
+    void anEmissionDueBeforeTheRunStartsStillRunsOnAWorker() throws Exception {
+        // E1's timer fires, to no effect, while setup is still arming E3's: the timeline has not started yet.
+        // Starting it must not run E1's emission on the setup thread, which would escape a worker's failure handling.
+        CountDownLatch firstTimerRan = new CountDownLatch(1);
+        Harness harness = new Harness(FIRST_ONLY, 200) {
+            @Override
+            void afterSchedule(int count) {
+                if (count == 3) awaitFirstTimer();
+            }
+
+            @Override
+            void afterTask(int count) {
+                if (count == 1) firstTimerRan.countDown();
+            }
+
+            private void awaitFirstTimer() {
+                try {
+                    assertThat(firstTimerRan.await(10, TimeUnit.SECONDS)).as("E1's timer ran").isTrue();
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+        }.failWorkerSchedule(1);
+        harness.limit = Duration.ofSeconds(5);
+        harness.run(run -> assertThatThrownBy(run)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageStartingWith("Scenario lifecycle: producer emission of E1 (ClaimSubmitted) failed")
+                .rootCause().isInstanceOf(IllegalStateException.class).hasMessage("injected task failure"));
+        harness.assertStopped();
+    }
+
+    @Test
     void deliveryTaskFailureDuringRetryReachesTheCallerWithItsAttempt() throws Exception {
         // Every POST gets a retryable 500; the second worker schedule is the retry timer for attempt 1.
         Harness harness = new Harness(FIRST_ONLY, 500).failWorkerSchedule(2);
@@ -130,7 +163,13 @@ class ScenarioRunnerLifecycleTest {
                             && workerSchedules.incrementAndGet() == failingWorkerSchedule) {
                         throw new IllegalStateException("injected task failure");
                     }
-                    ScheduledFuture<?> future = super.schedule(task, delay, unit);
+                    ScheduledFuture<?> future = super.schedule(() -> {
+                        try {
+                            task.run();
+                        } finally {
+                            afterTask(count);
+                        }
+                    }, delay, unit);
                     afterSchedule(count);
                     return future;
                 }
@@ -146,6 +185,10 @@ class ScenarioRunnerLifecycleTest {
         }
 
         void afterSchedule(int count) {
+        }
+
+        /** The task of the {@code count}th schedule call has run. */
+        void afterTask(int count) {
         }
 
         interface Expectation {
