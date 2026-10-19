@@ -145,6 +145,14 @@ public class ScenarioRunner {
         return Executors.newScheduledThreadPool(4);
     }
 
+    /**
+     * A seam for tests: the downstream's out-of-order delay of request {@code send} has been handed to the
+     * timeline, which no longer waits for the request, and {@code release} completes when the timeline ends the delay.
+     * The caller is about to wait for that. A test stalls the caller here, as a busy machine can.
+     */
+    void delayHandedOver(long send, CompletableFuture<Boolean> release) {
+    }
+
     /** The overall bound for a run that neither settles every event nor fails. */
     Duration scenarioLimit() {
         return Duration.ofSeconds(30);
@@ -487,6 +495,7 @@ public class ScenarioRunner {
                 moving(request, false);
                 if (timeouts == Timeouts.LOGICAL && delayMs >= props.timeoutMs()) timeOut(request);
             }
+            delayHandedOver(send, release);
             try {
                 at(request.at + delayMs, delayMs, request.event, "end of the delay of request " + send, () -> {
                     synchronized (this) {
