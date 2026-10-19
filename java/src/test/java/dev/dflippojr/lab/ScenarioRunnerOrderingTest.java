@@ -64,7 +64,7 @@ class ScenarioRunnerOrderingTest {
         final CountDownLatch laterEntered = new CountDownLatch(1);
 
         @Override
-        public Outcome receive(ClaimEvent event, Scenario.Safeguards guards, Trace trace) {
+        public Outcome receive(ClaimEvent event, Scenario.Safeguards guards, Trace trace, long runEpoch) {
             if (event.seq() == 1) {
                 firstEntered.countDown();
                 try {
@@ -78,7 +78,7 @@ class ScenarioRunnerOrderingTest {
             } else {
                 laterEntered.countDown();
             }
-            return super.receive(event, guards, trace);
+            return super.receive(event, guards, trace, runEpoch);
         }
     }
 

@@ -1,5 +1,5 @@
 name: ci
-# engine, java, differential and playwright run in parallel; gate is the one check a ruleset requires.
+# engine, java, differential, playwright and gate-guard run in parallel; gate is the one check a ruleset requires.
 # Run the same steps locally with npm run ci:local.
 on: [push, pull_request]
 permissions:
@@ -76,9 +76,31 @@ jobs:
             playwright-report/
             test-results/
           retention-days: 7
+  # The shared gate guard (dflippojr/.github), pinned by full SHA: fails a pull
+  # request that deletes tests, adds #[ignore], adds retries, or edits
+  # workflows or coverage config, unless the owner applied gate-change-approved.
+  # guard-ref names the same SHA, so the script that judges the pull request is
+  # the one that was reviewed. It checks pull requests only (a push prints a
+  # notice). Labels are read when the job runs: after the owner applies one,
+  # re-run this job.
+  # This job is an early signal inside gate, not the judge: it runs from the
+  # pull request's head, so a pull request can replace it, and it accepts a
+  # label applied before the newest push. The trusted copy is
+  # gate-guard-target.yml, which runs from main and posts the gate-guard check
+  # the ruleset requires.
+  gate-guard:
+    # gate-guard.yml requests these three; a called workflow can't hold more than its caller.
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    uses: dflippojr/.github/.github/workflows/gate-guard.yml@e2c7fae8508be0359f3abaf136caade46ee7479c
+    with:
+      guard-ref: e2c7fae8508be0359f3abaf136caade46ee7479c
+      require-owner-label-actor: true
   gate:
     # Always reports, so a failed, cancelled or skipped job above turns gate red instead of leaving it pending.
-    needs: [engine, java, differential, playwright]
+    needs: [engine, java, differential, playwright, gate-guard]
     if: always()
     runs-on: ubuntu-latest
     steps:

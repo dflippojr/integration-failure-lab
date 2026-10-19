@@ -3,12 +3,16 @@ package dev.dflippojr.lab;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 /**
  * A scenario file from {@code scenarios/*.json}, shared with the browser simulation. Parsed from a
  * plain map so the JSON stays the single source of truth for both implementations.
  */
 public record Scenario(String id, int order, String title, Failures failures, Safeguards safeguards, Map<String, Object> expect) {
+
+    // The id names the exported trace file, so it must not carry path separators or "..".
+    static final Pattern ID_SHAPE = Pattern.compile("[a-z0-9]++(?:-[a-z0-9]++)*+");
 
     public record Failures(String timeoutEvent, Set<Integer> timeoutAttempts, boolean timeoutAll,
                            String duplicateEvent, String reorderEvent, String schemaChangeEvent,
@@ -54,6 +58,18 @@ public record Scenario(String id, int order, String title, Failures failures, Sa
                     "ordering", ordering, "schemaValidation", schemaValidation, "deadLetter", deadLetter,
                     "replayAfterFix", replayAfterFix);
         }
+    }
+
+    /**
+     * A scenario from {@code scenarios/*.json}, whose id names its exported trace file. In-memory scenarios, such as
+     * the differential test's combinations ({@code timeout-paid-all__retry0+no-deadLetter}), use {@link #fromMap}.
+     */
+    public static Scenario fromFile(Map<String, Object> json) {
+        Object id = json.get("id");
+        if (!(id instanceof String s && ID_SHAPE.matcher(s).matches())) {
+            throw new IllegalArgumentException("Scenario " + id + ": id must be lowercase letters, digits and single hyphens");
+        }
+        return fromMap(json);
     }
 
     @SuppressWarnings("unchecked")

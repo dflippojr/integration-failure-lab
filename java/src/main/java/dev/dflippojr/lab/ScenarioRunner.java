@@ -57,19 +57,17 @@ public class ScenarioRunner {
     private Map<String, Object> run(Scenario scenario, HttpClient http) throws InterruptedException {
         // Exercise the event endpoint's JSON binding and header conversion before the scenario
         // clock starts. A health GET does not initialize this path. No injected faults apply here.
-        context.begin(Scenario.fromMap(Map.of("id", "warm-up")), new Trace());
-        store.reset();
+        RunContext.Run warmup = context.begin(Scenario.fromMap(Map.of("id", "warm-up")), new Trace(), store.reset());
         long warmupStart = System.nanoTime();
-        postEvent(client(http, Duration.ofSeconds(10)), ClaimEvent.sequence().getFirst(), 1);
+        postEvent(client(http, Duration.ofSeconds(10)), ClaimEvent.sequence().getFirst(), 1, warmup.epoch());
         long warmupMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - warmupStart);
         RestClient client = client(http, Duration.ofMillis(props.timeoutMs()));
 
         Trace trace = new Trace();
-        store.reset();
-        context.begin(scenario, trace);
+        RunContext.Run run = context.begin(scenario, trace, store.reset());
 
         ScheduledExecutorService scheduler = newDeliveryScheduler();
-        Delivery delivery = new Delivery(client, scenario, trace, scheduler);
+        Delivery delivery = new Delivery(client, scenario, trace, run.epoch(), scheduler);
         try {
             List<ClaimEvent> events = ClaimEvent.sequence();
             events.forEach(e -> delivery.originals.put(e.eventId(), e));
@@ -85,7 +83,7 @@ public class ScenarioRunner {
             delivery.thrown(failure);
             throw failure;
         } finally {
-            quiesce(scheduler, delivery);
+            quiesce(scheduler, delivery, run);
         }
         delivery.rethrowFailure();
 
@@ -119,15 +117,23 @@ public class ScenarioRunner {
 
     /**
      * Drops queued emissions, interrupts in-flight work and waits a bounded time for it, so failures
-     * from tasks that were already running are recorded before the caller sees the outcome.
+     * from tasks that were already running are recorded before the caller sees the outcome. Then waits
+     * for the downstream to finish requests the client gave up on, such as an out-of-order delay longer
+     * than the read timeout, so they land in this run. If that wait runs out or is interrupted, the run
+     * fails, and a request still running is dropped by the store once the next run has reset it.
      */
-    private static void quiesce(ScheduledExecutorService scheduler, Delivery delivery) {
+    private void quiesce(ScheduledExecutorService scheduler, Delivery delivery, RunContext.Run run) {
         scheduler.shutdownNow();
         try {
             if (!scheduler.awaitTermination(QUIESCE_SECONDS, TimeUnit.SECONDS)) {
                 delivery.fail(new IllegalStateException("delivery workers did not stop"));
             }
+            if (!run.awaitIdle(Duration.ofSeconds(QUIESCE_SECONDS))) {
+                delivery.fail(new IllegalStateException("downstream requests did not finish"));
+            }
         } catch (InterruptedException interrupted) {
+            // Events may still be in flight, so the run must not return a result.
+            delivery.fail(new IllegalStateException("cleanup was interrupted", interrupted));
             Thread.currentThread().interrupt();
         }
     }
@@ -160,7 +166,11 @@ public class ScenarioRunner {
                 .build();
     }
 
-    private static void postEvent(RestClient client, ClaimEvent event, int attempt) {
+    /**
+     * Posts one attempt, tagged with the epoch of the run that sent it, so the downstream can tell a request
+     * that arrives after its run has ended, even one held up before it reached the handler.
+     */
+    private static void postEvent(RestClient client, ClaimEvent event, int attempt, long runEpoch) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("eventId", event.eventId());
         body.put("type", event.type());
@@ -169,6 +179,7 @@ public class ScenarioRunner {
         body.put("payload", event.payload());
         client.post().uri("/claims/{id}/events", event.claimId())
                 .header("X-Attempt", String.valueOf(attempt))
+                .header(ClaimStatusController.RUN_HEADER, String.valueOf(runEpoch))
                 .body(body).retrieve().toBodilessEntity();
     }
 
@@ -181,16 +192,18 @@ public class ScenarioRunner {
         private final RestClient client;
         private final Scenario scenario;
         private final Trace trace;
+        private final long runEpoch;
         /** Events not yet applied, dead-lettered without a pending replay, or dropped. Guarded by {@code this}. */
         private int unsettled = 3;
         /** The first failure of the run; later ones are attached to it as suppressed. Guarded by {@code this}. */
         private Exception primary;
 
-        Delivery(RestClient client, Scenario scenario, Trace trace, ScheduledExecutorService scheduler) {
+        Delivery(RestClient client, Scenario scenario, Trace trace, long runEpoch, ScheduledExecutorService scheduler) {
             this.scheduler = scheduler;
             this.client = client;
             this.scenario = scenario;
             this.trace = trace;
+            this.runEpoch = runEpoch;
         }
 
         /**
@@ -213,9 +226,9 @@ public class ScenarioRunner {
             return new IllegalStateException("Scenario " + scenario.id() + ": " + what + " failed: " + cause, cause);
         }
 
+        /** Posts at once: an out-of-order delay is network time, held by the downstream after the read timeout starts. */
         void send(ClaimEvent event, int attempt) {
-            long delay = scenario.failures().delayed(event.type(), attempt) ? props.reorderDelayMs() : 0;
-            schedule("delivery of " + describe(event) + " attempt " + attempt, () -> post(event, attempt), delay);
+            schedule("delivery of " + describe(event) + " attempt " + attempt, () -> post(event, attempt), 0);
         }
 
         /** Waits until every event settles, a task fails, the limit passes, or the caller is interrupted. */
@@ -262,7 +275,7 @@ public class ScenarioRunner {
         private void post(ClaimEvent event, int attempt) {
             trace.log("queue", "send", event, "attempt", attempt);
             try {
-                postEvent(client, event, attempt);
+                postEvent(client, event, attempt, runEpoch);
                 settled();
             } catch (HttpClientErrorException rejected) {
                 giveUp(event, attempt, "rejected as non-retryable");

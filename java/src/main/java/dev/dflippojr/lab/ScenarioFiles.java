@@ -28,14 +28,19 @@ public class ScenarioFiles {
     public List<Scenario> load() throws IOException {
         try (Stream<Path> files = Files.list(Path.of(props.scenariosDir()))) {
             return files.filter(p -> p.toString().endsWith(".json"))
-                    .map(p -> Scenario.fromMap(json.readValue(p.toFile(), Map.class)))
+                    .map(p -> Scenario.fromFile(json.readValue(p.toFile(), Map.class)))
                     .sorted(Comparator.comparingInt(Scenario::order))
                     .toList();
         }
     }
 
     public void write(Path dir, String name, Object value) throws IOException {
-        Files.createDirectories(dir);
-        json.writerWithDefaultPrettyPrinter().writeValue(dir.resolve(name).toFile(), value);
+        Path base = dir.toAbsolutePath().normalize();
+        Path target = base.resolve(name).normalize();
+        if (!base.equals(target.getParent())) {
+            throw new IllegalArgumentException("Refusing to write " + name + " outside " + base);
+        }
+        Files.createDirectories(base);
+        json.writerWithDefaultPrettyPrinter().writeValue(target.toFile(), value);
     }
 }
