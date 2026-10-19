@@ -27,3 +27,9 @@ test('the gate guard runs from main under pull_request_target and runs no pull r
 test('ci stays on pull_request, so no pull request code runs with a write token', () => {
   for (const file of ['ci.yml', 'sonar.yml']) assert.doesNotMatch(read(file), /pull_request_target/, file);
 });
+
+test('ci.yml runs the same gate guard, pinned to the same SHA, and gate waits for it', () => {
+  const [, jobs] = code(read('ci.yml')).split('\njobs:\n');
+  assert.match(jobs, new RegExp(`^ {2}gate-guard:\\n {4}permissions:\\n {6}contents: read\\n {6}issues: read\\n {6}pull-requests: read\\n {4}uses: dflippojr/\\.github/\\.github/workflows/gate-guard\\.yml@${SHA}\\n {4}with:\\n {6}guard-ref: ${SHA}\\n {6}require-owner-label-actor: true\\n`, 'm'));
+  assert.match(jobs, /^ {4}needs: \[engine, java, differential, playwright, gate-guard\]$/m);
+});
