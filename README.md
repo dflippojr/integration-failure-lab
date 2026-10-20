@@ -29,6 +29,17 @@ python -m http.server 4180 --directory dist   # open http://127.0.0.1:4180
 
 The runner reads scenarios from `../scenarios` relative to where it starts, so run the jar from `java/`.
 
+### Recording drift
+
+**Replay real run** plays `executed/`, so the recordings must be what the current Java runner does, not what an older build did. `npm run recordings` (after `cd java && ./mvnw -B package -DskipTests`) re-records every scenario into a temp directory and compares it with the committed `executed/`. It leaves out `generatedAt`, `warmupMs`, `runtime` (the JDK build) and each trace row's wall-clock `t`, and ignores key order. Any other difference fails the run with a line diff per file: trace order and contents, `record`, `dlq`, `dropped`, `buffered`, the guards and configured timings, `index.json`, or a missing or extra recording. On a failure the temp directory is kept and its path printed. The `recordings` CI job runs it on every push. When a Java change is meant to alter behaviour, re-record from the repository root and commit `executed/` and the rebuilt `dist/`:
+
+```sh
+cd java && ./mvnw -B package -DskipTests && java -jar target/integration-failure-lab-0.1.0-SNAPSHOT.jar --lab.export-dir=../executed
+cd .. && npm run build
+```
+
+The export mode runs the first scenario once and discards it before recording, so a cold JVM cannot reorder the first recording. Its requests are real HTTP, but it judges timeouts on each run's logical timeline instead of by the wall clock: a request times out only when the scenario injects a timeout or a lost ack, or delays it to or past the 300 ms read timeout. So a busy machine or a paused JVM slows the export down but cannot add a timeout to a recording. A request with no answer within a 10 s transport bound fails the export as an infrastructure problem instead of being recorded as a timeout. Normal runs and the differential keep real read timeouts.
+
 ### Differential testing
 
 The twelve scenarios only pin down twelve points of what Free-form can reach. `npm run differential` (after `cd java && ./mvnw -B package -DskipTests`) checks the rest: `test/differential/combos.mjs` generates every pair of failure setting (kind, target event and timeout attempts) and single safeguard change, every pair of failures, and a seeded sample of 3-way combinations, including poison and replay after the fix. The script runs each through `engine.run()` and, in one JVM, through the Java runner's batch mode (`--lab.differential-in=<file> --lab.differential-out=<file>`, `DifferentialRunner`, four combinations at a time, each worker with its own store and port) over real loopback HTTP. Java runs the engine's own timing model at a quarter of its speed (`TIME_SCALE` in `scripts/differential.mjs`), because the runner's default timings are not proportional to the engine's and reorder outcomes on their own. Both sides write the same normalised outcome: the record, the DLQ, dropped and buffered event ids, and the verdict (`Verdict.java` ports `judge()`), without timings. Any combination whose outcomes differ fails the run with both outcomes and a repro line (`npm run differential -- --only <id>`). Owner-decided divergences go in `test/differential/known.json`: at most three, each with an issue link and the exact combination ids it explains. A listed combination whose outcomes agree again fails the run as stale, so the file only shrinks. A full run takes about four minutes.
@@ -81,12 +92,13 @@ Run the whole gate locally with `npm run ci:local` (see [AGENTS.md](AGENTS.md)).
 
 GitHub Actions runs two workflows on pushes and pull requests, and a third on pull requests only:
 
-- `.github/workflows/ci.yml`: four jobs and a `gate` job, which is the one check to require.
+- `.github/workflows/ci.yml`: five jobs and a `gate` job, which is the one check to require.
   - `engine`: `npm run lint` (ESLint recommended rules, `eslint.config.js`), then `npm run test:coverage` (Node 22), which is `npm test` with line and branch coverage floors.
   - `java`: `./mvnw -B verify` in `java/` (Java 21), including a JaCoCo line-coverage floor.
   - `differential`: `npm run differential` against a freshly built runner jar (see [Differential testing](#differential-testing)).
+  - `recordings`: `npm run recordings` against a freshly built runner jar (see [Recording drift](#recording-drift)).
   - `playwright`: isolated desktop/Pixel 7 Playwright journeys in light, a host-token and Guided/Free-form smoke test on both dark projects, plus desktop-light breakpoint and live-resize checks on GitHub-hosted runners with one worker.
-  - `gate`: runs after the other four even when one fails, and passes only when all four succeed.
+  - `gate`: runs after the other five even when one fails, and passes only when all five succeed.
 - `.github/workflows/sonar.yml`: SonarCloud analysis with coverage (lcov from the Node test runner, JaCoCo from the Java module). It runs on pushes to `main` and on pull requests from this repo, and fails when the quality gate fails. A newer push cancels a PR's running analysis, but runs on `main` are never cancelled. Project keys are in `sonar-project.properties`.
 - `.github/workflows/gate-guard-target.yml`: the shared gate guard from dflippojr/.github, pinned by full commit SHA. It posts the `gate-guard` check, which fails a pull request that deletes or skips tests, adds or raises retries, or edits workflows, coverage floors or Sonar config, unless the owner's `gate-change-approved` label was applied after the newest push. It runs under `pull_request_target`, so GitHub reads it from `main` and a pull request can't rewrite the check that judges it; it reads the pull request's diff as data and never checks out or runs its code. The `main` ruleset requires `gate-guard` next to `gate`, both from GitHub Actions.
 
