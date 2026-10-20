@@ -1,5 +1,6 @@
 package dev.dflippojr.lab;
 
+import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -14,8 +15,8 @@ import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.stereotype.Component;
 
 /**
- * With {@code --lab.export-dir=path}, executes every scenario once, writes {@code <id>.json} plus an
- * {@code index.json}, and exits. Without it, the app just serves the downstream for manual poking.
+ * With {@code --lab.export-dir=path}, warms up with one discarded run, executes every scenario once,
+ * writes {@code <id>.json} plus an {@code index.json}, and exits. Without it, the app just serves the downstream for manual poking.
  */
 @Component
 public class ExportRunner implements CommandLineRunner {
@@ -37,10 +38,20 @@ public class ExportRunner implements CommandLineRunner {
     @Override
     public void run(String... args) throws Exception {
         if (props.exportDir() == null) return;
-        Path out = Path.of(props.exportDir());
+        export(Path.of(props.exportDir()));
+        System.exit(SpringApplication.exit(context, () -> 0));
+    }
+
+    /** Records every scenario into {@code out}, after one discarded warm-up run. */
+    void export(Path out) throws IOException, InterruptedException {
+        List<Scenario> scenarios = files.load();
+        // A discarded first run: on a cold JVM the first scenario's requests can be slow enough to pass
+        // the read timeout, so the first recording would show timeouts the scenario does not inject.
+        runner.run(scenarios.getFirst(), ScenarioRunner.Timeouts.LOGICAL);
         List<Map<String, Object>> index = new ArrayList<>();
-        for (Scenario scenario : files.load()) {
-            Map<String, Object> result = runner.run(scenario);
+        for (Scenario scenario : scenarios) {
+            // Logical timeouts: a recording shows the injected faults, not how busy the machine was.
+            Map<String, Object> result = runner.run(scenario, ScenarioRunner.Timeouts.LOGICAL);
             files.write(out, scenario.id() + ".json", result);
             Map<String, Object> entry = new LinkedHashMap<>();
             entry.put("scenarioId", scenario.id());
@@ -49,6 +60,5 @@ public class ExportRunner implements CommandLineRunner {
             log.info("Executed {} -> {}", scenario.id(), result.get("record"));
         }
         files.write(out, "index.json", index);
-        System.exit(SpringApplication.exit(context, () -> 0));
     }
 }

@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-const SHA = 'e2c7fae8508be0359f3abaf136caade46ee7479c';
+const SHA = '882623c67a5c3bab64da2136e6070a5325440b47';
 const read = path => readFileSync(new URL(`../.github/workflows/${path}`, import.meta.url), 'utf8');
 // Without comment lines, so a key named in a comment doesn't count.
 const code = text => text.split('\n').filter(line => !line.trimStart().startsWith('#')).join('\n');
@@ -31,5 +31,5 @@ test('ci stays on pull_request, so no pull request code runs with a write token'
 test('ci.yml runs the same gate guard, pinned to the same SHA, and gate waits for it', () => {
   const [, jobs] = code(read('ci.yml')).split('\njobs:\n');
   assert.match(jobs, new RegExp(`^ {2}gate-guard:\\n {4}permissions:\\n {6}contents: read\\n {6}issues: read\\n {6}pull-requests: read\\n {4}uses: dflippojr/\\.github/\\.github/workflows/gate-guard\\.yml@${SHA}\\n {4}with:\\n {6}guard-ref: ${SHA}\\n {6}require-owner-label-actor: true\\n`, 'm'));
-  assert.match(jobs, /^ {4}needs: \[engine, java, differential, playwright, gate-guard\]$/m);
+  assert.match(jobs, /^ {4}needs: \[engine, java, differential, recordings, playwright, gate-guard\]$/m);
 });

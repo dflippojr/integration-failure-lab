@@ -22,7 +22,8 @@ test('the steps are the ci.yml jobs before gate, with one Java fork and one Play
   assert.match(STEPS[0].command, /^npm run lint && npm run test:coverage$/);
   assert.match(STEPS[1].command, /mvnw(\.cmd)? -B verify -DforkCount=1$/);
   assert.match(STEPS[2].command, /mvnw(\.cmd)? -B package -DskipTests && cd \.\. && npm run differential$/);
-  assert.match(STEPS[3].command, /^npm run test:ui -- --workers=1$/);
+  assert.match(STEPS[3].command, /mvnw(\.cmd)? -B package -DskipTests && cd \.\. && npm run recordings$/);
+  assert.match(STEPS[4].command, /^npm run test:ui -- --workers=1$/);
   assert.equal(STOP.command, 'npm run ui:stop');
 });
 

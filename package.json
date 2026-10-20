@@ -13,6 +13,7 @@
     "ui:stop": "node checks/ui-instance.mjs stop",
     "test:ui": "playwright test",
     "differential": "node scripts/differential.mjs",
+    "recordings": "node scripts/recordings.mjs",
     "demo:render": "node demo/render.mjs"
   },
   "engines": {
@@ -21,7 +22,7 @@
   "license": "MIT",
   "devDependencies": {
     "@eslint/js": "10.0.1",
-    "@playwright/test": "^1.64.0",
+    "@playwright/test": "^1.64.1",
     "esbuild": "0.28.2",
     "eslint": "10.13.0",
     "globals": "17.13.0"
