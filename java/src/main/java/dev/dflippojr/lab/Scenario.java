@@ -1,5 +1,6 @@
 package dev.dflippojr.lab;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -54,9 +55,16 @@ public record Scenario(String id, int order, String title, Failures failures, Sa
         }
 
         public Map<String, Object> asMap() {
-            return Map.of("retryLimit", retryLimit, "backoff", backoff, "idempotency", idempotency,
-                    "ordering", ordering, "schemaValidation", schemaValidation, "deadLetter", deadLetter,
-                    "replayAfterFix", replayAfterFix);
+            // A fixed key order, so a re-recorded executed/ file only differs where behaviour does.
+            Map<String, Object> map = new LinkedHashMap<>();
+            map.put("retryLimit", retryLimit);
+            map.put("backoff", backoff);
+            map.put("idempotency", idempotency);
+            map.put("ordering", ordering);
+            map.put("schemaValidation", schemaValidation);
+            map.put("deadLetter", deadLetter);
+            map.put("replayAfterFix", replayAfterFix);
+            return map;
         }
     }
 
