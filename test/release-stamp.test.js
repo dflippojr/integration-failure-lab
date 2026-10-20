@@ -98,6 +98,29 @@ test('a failed build.json download or an unusable stamp fails', async () => {
   }
 });
 
+test('a line break in the tag cannot forge a second log line', async () => {
+  const tag = 'lab-bundle\nFORGED entry';
+  requests = [];
+  routes.clear();
+  routes.set(`/repos/lab/lab/releases/tags/${encodeURIComponent(tag)}`, [500, 'oops']);
+  const result = await run('lab/lab', tag);
+  assert.equal(result.status, 1, result.stderr);
+  assert.equal(result.stdout, '');
+  assert.equal(result.stderr.trimEnd().split('\n').length, 1, result.stderr);
+  assert.match(result.stderr, /^Cannot read the lab-bundle\\u000aFORGED entry release stamp: .*returned HTTP 500\n$/);
+});
+
+test('a parse error that quotes a line break from the stamp cannot forge a second log line', async () => {
+  const run = await stampOf(
+    [releaseUrl, release()],
+    ['/assets/1', [200, 'not json\nFORGED entry']],
+  );
+  assert.equal(run.status, 1, run.stderr);
+  assert.equal(run.stdout, '');
+  assert.equal(run.stderr.trimEnd().split('\n').length, 1, run.stderr);
+  assert.match(run.stderr, /^Cannot read the lab-bundle release stamp: .*\\u000a/);
+});
+
 test('exits 2 without a repository and a tag', async () => {
   const run = await new Promise(resolve => {
     const child = spawn(process.execPath, [script, 'lab/lab']);

@@ -10,6 +10,10 @@ if (!repo || !tag) {
   process.exit(2);
 }
 
+// The tag and the error text can carry a line break (argv, HTTP or parser text), which would start a new log line, so escape
+// control characters and line or paragraph separators before logging them.
+const oneLine = text => String(text).replace(/[\p{Cc}\p{Zl}\p{Zp}]/gu, c => `\\u${c.codePointAt(0).toString(16).padStart(4, '0')}`);
+
 const api = process.env.GITHUB_API_URL ?? 'https://api.github.com';
 const get = (url, accept) => fetch(url, {
   headers: {
@@ -33,6 +37,6 @@ try {
     }
   }
 } catch (error) {
-  console.error(`Cannot read the ${tag} release stamp: ${error.message}`);
+  console.error(`Cannot read the ${oneLine(tag)} release stamp: ${oneLine(error.message)}`);
   process.exit(1);
 }
