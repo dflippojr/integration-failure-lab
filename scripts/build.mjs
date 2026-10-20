@@ -28,7 +28,8 @@ switch (target) {
 // The stamp is taken before anything is written: HEAD, marked -dirty when the checkout has uncommitted changes.
 const git = (...args) => runGit(root, ...args);
 const head = git('rev-parse', '--verify', 'HEAD');
-const status = git('status', '--porcelain');
+// --untracked-files=all: status.showUntrackedFiles=no would otherwise hide an untracked file that the bundle includes.
+const status = git('status', '--porcelain', '--untracked-files=all');
 let gitCommit = 'unknown';
 if (head.status === 0 && status.status === 0) {
   gitCommit = head.stdout.trim() + (status.stdout.trim() ? '-dirty' : '');

@@ -60,9 +60,26 @@ test('the build and freshness scripts never start git by name', () => {
 
 // Default concurrency keeps one pending job and cancels it when another arrives, so with A publishing, C pending
 // and B arriving, C never publishes. queue: max keeps them all; the ancestry check skips one that arrives late.
+// The workflow is read with LF endings so a CRLF checkout (core.autocrlf=true) sees the same text as CI.
+const publishJob = text => {
+  const ci = text.replace(/\r\n/g, '\n');
+  return ci.slice(ci.indexOf('\n  publish:'));
+};
+const queuesEveryPublish = publish =>
+  /concurrency:\n\s+group: lab-bundle\n\s+cancel-in-progress: false\n\s+queue: max\n/.test(publish);
+
 test('the publish job queues every pending publish instead of replacing it', () => {
-  const ci = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8');
-  const publish = ci.slice(ci.indexOf('\n  publish:'));
-  assert.match(publish, /concurrency:\n\s+group: lab-bundle\n\s+cancel-in-progress: false\n\s+queue: max\n/);
+  const publish = publishJob(readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8'));
+  assert.ok(queuesEveryPublish(publish));
   assert.match(publish, /git merge-base --is-ancestor "\$GITHUB_SHA" "\$current"/);
+});
+
+test('the queue check reads LF and CRLF workflows alike, and still fails without queue: max', () => {
+  const job = '\n  publish:\n    concurrency:\n      group: lab-bundle\n      cancel-in-progress: false\n      queue: max\n    env:\n';
+  const crlf = text => text.replace(/\n/g, '\r\n');
+  const without = job.replace('      queue: max\n', '');
+  assert.ok(queuesEveryPublish(publishJob(job)));
+  assert.ok(queuesEveryPublish(publishJob(crlf(job))));
+  assert.ok(!queuesEveryPublish(publishJob(without)));
+  assert.ok(!queuesEveryPublish(publishJob(crlf(without))));
 });

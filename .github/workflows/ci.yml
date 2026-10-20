@@ -164,7 +164,9 @@ jobs:
       - name: Skip when the release already holds a newer main commit
         id: order
         run: |
-          current=$(gh release download "$TAG" -p build.json -O - 2>/dev/null | jq -r '.gitCommit // empty' || true)
+          # A failed lookup or an unreadable stamp fails this step (bash -e): only a confirmed absent release, or a
+          # release without build.json, leaves current empty.
+          current=$(node scripts/release-stamp.mjs "$GITHUB_REPOSITORY" "$TAG")
           if [ -n "$current" ] && [ "$current" != "$GITHUB_SHA" ] && git merge-base --is-ancestor "$GITHUB_SHA" "$current"; then
             echo "The $TAG release holds $current, which is newer than $GITHUB_SHA; not publishing."
             echo "skip=true" >> "$GITHUB_OUTPUT"

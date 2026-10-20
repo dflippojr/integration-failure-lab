@@ -78,6 +78,24 @@ test('dist and test builds mark a dirty checkout instead of refusing it', () => 
   }
 });
 
+test('an untracked file is dirty even when status.showUntrackedFiles=no hides it', () => {
+  const head = git('rev-parse', 'HEAD');
+  git('config', 'status.showUntrackedFiles', 'no');
+  writeFileSync(join(lab, 'scenarios', 'zz-untracked.json'), '{}');
+  try {
+    assert.equal(git('status', '--porcelain'), '', 'plain porcelain status hides the untracked file under this configuration');
+    const site = node('build.mjs', 'site');
+    assert.equal(site.status, 1);
+    assert.match(site.stderr, /uncommitted changes \([0-9a-f]{40}-dirty\)/);
+    const dist = node('build.mjs', 'dist');
+    assert.equal(dist.status, 0, dist.stderr);
+    assert.equal(JSON.parse(readFileSync(join(lab, 'dist', 'build.json'), 'utf8')).gitCommit, `${head}-dirty`);
+  } finally {
+    git('config', '--unset', 'status.showUntrackedFiles');
+    for (const p of ['scenarios/zz-untracked.json', 'dist']) rmSync(join(lab, p), { recursive: true, force: true });
+  }
+});
+
 test('build outside a git checkout stamps the commit as unknown and refuses the site target', () => {
   const bare = join(tmp, 'bare');
   for (const p of ['scripts', 'engine', 'ui', 'scenarios', 'executed', 'package.json']) cpSync(join(lab, p), join(bare, p), { recursive: true });
