@@ -128,3 +128,63 @@ jobs:
         run: |
           jq -r 'to_entries[] | "\(.key): \(.value.result)"' <<< "$NEEDS"
           jq -e 'all(.[]; .result == "success")' <<< "$NEEDS" > /dev/null
+  publish:
+    # Rolling lab-bundle pre-release: dist/ and its build.json stamp from each main commit that passes gate.
+    # personal-website re-vendors from it, and scripts/site-freshness.mjs reports a copy that falls behind main.
+    needs: gate
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    # Publishes run one at a time and never cancel. The default queue keeps one pending job and cancels it when
+    # another arrives, which can drop the newest commit; queue: max keeps every one (up to 100). Queued jobs can
+    # start out of commit order, so the ancestry check below skips one older than the release's commit.
+    concurrency:
+      group: lab-bundle
+      cancel-in-progress: false
+      queue: max
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: lab-bundle
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Require a clean build of this commit
+        run: |
+          git status --porcelain
+          test -z "$(git status --porcelain)"
+          jq -e --arg sha "$GITHUB_SHA" '.gitCommit == $sha and .builtFrom == "integration-failure-lab"' dist/build.json
+      - name: Skip when the release already holds a newer main commit
+        id: order
+        run: |
+          # A failed lookup or an unreadable stamp fails this step (bash -e): only a confirmed absent release, or a
+          # release without build.json, leaves current empty.
+          current=$(node scripts/release-stamp.mjs "$GITHUB_REPOSITORY" "$TAG")
+          if [ -n "$current" ] && [ "$current" != "$GITHUB_SHA" ] && git merge-base --is-ancestor "$GITHUB_SHA" "$current"; then
+            echo "The $TAG release holds $current, which is newer than $GITHUB_SHA; not publishing."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Publish the lab-bundle pre-release
+        if: steps.order.outputs.skip != 'true'
+        run: |
+          (cd dist && zip -X -q -r ../lab-bundle.zip .)
+          notes="dist/ built from ${GITHUB_SHA} (${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}). Replaced on every main commit that passes gate; build.json names the commit."
+          # Move the tag to this commit so the release points at what it contains.
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" > /dev/null 2>&1; then
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/$TAG" -f sha="$GITHUB_SHA" -F force=true > /dev/null
+          fi
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release edit "$TAG" --prerelease --notes "$notes"
+            gh release upload "$TAG" lab-bundle.zip dist/build.json --clobber
+          else
+            gh release create "$TAG" lab-bundle.zip dist/build.json --prerelease --target "$GITHUB_SHA" \
+              --title "Lab bundle (rolling, from main)" --notes "$notes"
+          fi
+          echo "Published ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/${TAG}"

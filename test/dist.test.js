@@ -1,4 +1,5 @@
 // Guards against drift: dist/ must equal a fresh build, and executed/ must cover the scenarios.
+// The build stamp dist/build.json names a commit, so it is generated and git-ignored rather than compared.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -34,7 +35,7 @@ before(() => {
   // Build in a private copy of the sources so this never races the UI tests' dist-test/ output.
   tmp = mkdtempSync(join(tmpdir(), 'ifl-dist-'));
   mkdirSync(join(tmp, 'scripts'));
-  cpSync(join(root, 'scripts', 'build.mjs'), join(tmp, 'scripts', 'build.mjs'));
+  for (const f of ['build.mjs', 'git.mjs']) cpSync(join(root, 'scripts', f), join(tmp, 'scripts', f));
   for (const d of ['engine', 'ui', 'scenarios', 'executed']) cpSync(join(root, d), join(tmp, d), { recursive: true });
   linkModules(tmp);
   const run = spawnSync(process.execPath, [join(tmp, 'scripts', 'build.mjs'), 'dist'], { encoding: 'utf8' });
@@ -49,6 +50,15 @@ for (const file of GENERATED) {
     assert.ok(fresh === committed, `dist/${file} is stale: run \`npm run build\` and commit dist/.`);
   });
 }
+
+test('dist/build.json is generated, git-ignored and never committed', () => {
+  const stamp = JSON.parse(readFileSync(join(tmp, 'dist', 'build.json'), 'utf8'));
+  assert.deepEqual(Object.keys(stamp), ['gitCommit', 'builtFrom']);
+  assert.equal(stamp.builtFrom, 'integration-failure-lab');
+  const git = (...args) => spawnSync('git', args, { cwd: root, encoding: 'utf8' });
+  assert.equal(git('check-ignore', '-q', 'dist/build.json').status, 0, 'dist/build.json must be git-ignored');
+  assert.equal(git('ls-files', 'dist/build.json').stdout, '', 'dist/build.json must not be committed');
+});
 
 test('generated SCENARIOS carry only the browser fields, in order sequence', async () => {
   const { SCENARIOS } = await import('../dist/scenarios.js');

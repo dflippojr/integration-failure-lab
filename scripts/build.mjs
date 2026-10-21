@@ -1,5 +1,6 @@
 // Assemble dist/ for embedding: engine.js, lab.js, lab.css, and scenarios.js generated from scenarios/*.json.
 // Every output is minified file by file with esbuild (no bundling, no source maps); engine/ and ui/ stay readable.
+// build.json stamps the output with the commit it was built from (git-ignored in dist/; see scripts/site-freshness.mjs).
 // Usage: node scripts/build.mjs [dist|site|test]   (default: dist)
 //   dist  this repo's dist/
 //   site  ../personal-website/public/lab, the website checkout next to this repo
@@ -8,18 +9,36 @@
 import { readdirSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join, resolve } from 'node:path';
+import { runGit } from './git.mjs';
 
 const root = resolve(import.meta.dirname, '..');
 // Resolve esbuild from this checkout's node_modules (run npm ci first).
 const { transformSync } = createRequire(join(root, 'package.json'))('esbuild');
+const target = process.argv[2] ?? 'dist';
 let out;
-switch (process.argv[2] ?? 'dist') {
+switch (target) {
   case 'dist': out = join(root, 'dist'); break;
   case 'site': out = join(root, '..', 'personal-website', 'public', 'lab'); break;
   case 'test': out = join(root, 'dist-test'); break;
   default:
     console.error(`Unknown target "${process.argv[2]}"; use dist, site or test.`);
     process.exit(1);
+}
+
+// The stamp is taken before anything is written: HEAD, marked -dirty when the checkout has uncommitted changes.
+const git = (...args) => runGit(root, ...args);
+const head = git('rev-parse', '--verify', 'HEAD');
+// --untracked-files=all: status.showUntrackedFiles=no would otherwise hide an untracked file that the bundle includes.
+const status = git('status', '--porcelain', '--untracked-files=all');
+let gitCommit = 'unknown';
+if (head.status === 0 && status.status === 0) {
+  gitCommit = head.stdout.trim() + (status.stdout.trim() ? '-dirty' : '');
+}
+if (target === 'site' && !/^[0-9a-f]{40}$/.test(gitCommit)) {
+  console.error(gitCommit === 'unknown'
+    ? 'The site build must run from a git checkout of integration-failure-lab.'
+    : `The checkout has uncommitted changes (${gitCommit}); commit or discard them before building the site.`);
+  process.exit(1);
 }
 mkdirSync(out, { recursive: true });
 
@@ -51,4 +70,5 @@ export const EXECUTED = ${JSON.stringify(executed)};
 emit('engine.js', readFileSync(join(root, 'engine', 'engine.js'), 'utf8'));
 emit('lab.js', readFileSync(join(root, 'ui', 'lab.js'), 'utf8'));
 emit('lab.css', readFileSync(join(root, 'ui', 'lab.css'), 'utf8'));
-console.log(`Built ${scenarios.length} scenarios and ${Object.keys(executed).length} executed traces into ${out}`);
+writeFileSync(join(out, 'build.json'), `${JSON.stringify({ gitCommit, builtFrom: 'integration-failure-lab' }, null, 2)}\n`);
+console.log(`Built ${scenarios.length} scenarios and ${Object.keys(executed).length} executed traces into ${out} from ${gitCommit}`);
