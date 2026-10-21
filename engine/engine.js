@@ -220,14 +220,14 @@ export function run(scenario, overrides = {}) {
 
   // Listed in seq order, the order the buffer drains in (Java's TreeMap matches).
   const buffered = [...buffer.values()].sort((a, b) => a.seq - b.seq).map(e => ({ eventId: e.eventId, eventType: e.type, seq: e.seq }));
-  const verdict = judge(record, { dlq, dropped, buffered });
+  const verdict = judge(record, { dlq, buffered });
   return { trace, record, expected: EXPECTED_RECORD, dlq, dropped, buffered, stats, guards, verdict };
 }
 
 const dollars = cents => `$${(cents / 100).toFixed(2)}`;
 const typeOf = id => claimEvents().find(e => e.eventId === id).type;
 
-export function judge(record, { dlq = [], dropped = [], buffered = [] } = {}) {
+export function judge(record, { dlq = [], buffered = [] } = {}) {
   const problems = [];
   const counts = record.applied.reduce((m, id) => m.set(id, (m.get(id) ?? 0) + 1), new Map());
 

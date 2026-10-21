@@ -23,11 +23,16 @@ function sorted(value) {
   return value;
 }
 
+// An object without the named keys.
+function without(object, keys) {
+  return Object.fromEntries(Object.entries(object).filter(([key]) => !keys.includes(key)));
+}
+
 // The behaviour of one recording (or index.json, which has no wall-clock fields).
 export function normalise(recording) {
   if (Array.isArray(recording)) return sorted(recording);
-  const { generatedAt, warmupMs, runtime, trace, ...rest } = recording;
-  return sorted(trace ? { ...rest, trace: trace.map(({ t, ...row }) => row) } : rest);
+  const rest = without(recording, ['generatedAt', 'warmupMs', 'runtime', 'trace']);
+  return sorted(recording.trace ? { ...rest, trace: recording.trace.map(row => without(row, ['t'])) } : rest);
 }
 
 // A line diff of two texts (longest common subsequence), with up to `context` unchanged lines around each change.

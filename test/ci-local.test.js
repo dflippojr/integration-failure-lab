@@ -18,7 +18,7 @@ test('the steps are the ci.yml jobs before gate, with one Java fork and one Play
   const ci = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8');
   const jobs = [...ci.matchAll(/^ {2}(\w+):$/gm)].map(m => m[1]);
   assert.deepEqual(STEPS.map(s => s.name).concat('gate'), jobs);
-  assert.match(STEPS[0].command, /^npm run test:coverage$/);
+  assert.match(STEPS[0].command, /^npm run lint && npm run test:coverage$/);
   assert.match(STEPS[1].command, /mvnw(\.cmd)? -B verify -DforkCount=1$/);
   assert.match(STEPS[2].command, /mvnw(\.cmd)? -B package -DskipTests && cd \.\. && npm run differential$/);
   assert.match(STEPS[3].command, /mvnw(\.cmd)? -B package -DskipTests && cd \.\. && npm run recordings$/);

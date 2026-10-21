@@ -12,7 +12,7 @@ const root = resolve(import.meta.dirname, '..');
 const mvnw = process.platform === 'win32' ? String.raw`.\mvnw.cmd` : './mvnw';
 
 export const STEPS = [
-  { name: 'engine', command: 'npm run test:coverage', cwd: root },
+  { name: 'engine', command: 'npm run lint && npm run test:coverage', cwd: root },
   { name: 'java', command: `${mvnw} -B verify -DforkCount=1`, cwd: join(root, 'java') },
   { name: 'differential', command: `${mvnw} -B package -DskipTests && cd .. && npm run differential`, cwd: join(root, 'java') },
   { name: 'recordings', command: `${mvnw} -B package -DskipTests && cd .. && npm run recordings`, cwd: join(root, 'java') },

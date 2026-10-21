@@ -93,7 +93,7 @@ Run the whole gate locally with `npm run ci:local` (see [AGENTS.md](AGENTS.md)).
 GitHub Actions runs two workflows on pushes and pull requests, and a third on pull requests only:
 
 - `.github/workflows/ci.yml`: five jobs and a `gate` job, which is the one check to require.
-  - `engine`: `npm run test:coverage` (Node 22), which is `npm test` with line and branch coverage floors.
+  - `engine`: `npm run lint` (ESLint recommended rules, `eslint.config.js`), then `npm run test:coverage` (Node 22), which is `npm test` with line and branch coverage floors.
   - `java`: `./mvnw -B verify` in `java/` (Java 21), including a JaCoCo line-coverage floor.
   - `differential`: `npm run differential` against a freshly built runner jar (see [Differential testing](#differential-testing)).
   - `recordings`: `npm run recordings` against a freshly built runner jar (see [Recording drift](#recording-drift)).
@@ -102,7 +102,7 @@ GitHub Actions runs two workflows on pushes and pull requests, and a third on pu
 - `.github/workflows/sonar.yml`: SonarCloud analysis with coverage (lcov from the Node test runner, JaCoCo from the Java module). It runs on pushes to `main` and on pull requests from this repo, and fails when the quality gate fails. A newer push cancels a PR's running analysis, but runs on `main` are never cancelled. Project keys are in `sonar-project.properties`.
 - `.github/workflows/gate-guard-target.yml`: the shared gate guard from dflippojr/.github, pinned by full commit SHA. It posts the `gate-guard` check, which fails a pull request that deletes or skips tests, adds or raises retries, or edits workflows, coverage floors or Sonar config, unless the owner's `gate-change-approved` label was applied after the newest push. It runs under `pull_request_target`, so GitHub reads it from `main` and a pull request can't rewrite the check that judges it; it reads the pull request's diff as data and never checks out or runs its code. The `main` ruleset requires `gate-guard` next to `gate`, both from GitHub Actions.
 
-Dependabot checks weekly for Maven updates in `/java`, npm updates at `/`, and GitHub Actions updates at `/`, as configured in `.github/dependabot.yml`. The root npm entry covers the Playwright test dependency.
+Dependabot checks weekly for Maven updates in `/java`, npm updates at `/`, and GitHub Actions updates at `/`, as configured in `.github/dependabot.yml`. The root npm entry covers the Playwright, esbuild and ESLint dev dependencies.
 
 SonarCloud requires an authorized analysis token named `SONAR_TOKEN` in repository **Actions** secrets for ordinary runs and separately in **Dependabot** secrets for Dependabot PRs (Settings → Secrets and variables → Dependabot → New repository secret). GitHub supplies the appropriate secret store through the same workflow reference; Actions secrets are unavailable to Dependabot-triggered runs. Fork PRs remain excluded. If the token is absent, the SonarCloud workflow emits a notice and a job summary and skips analysis cleanly; this is not a successful analysis or a passing quality gate. The `ci` workflow still runs.
 
