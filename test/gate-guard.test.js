@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-const SHA = '882623c67a5c3bab64da2136e6070a5325440b47';
+const SHA = '27bdb76481888567a6c524ebbb19bf4a6c7e7e20';
 const read = path => readFileSync(new URL(`../.github/workflows/${path}`, import.meta.url), 'utf8');
 // Without comment lines, so a key named in a comment doesn't count.
 const code = text => text.split('\n').filter(line => !line.trimStart().startsWith('#')).join('\n');
