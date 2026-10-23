@@ -1,8 +1,9 @@
 import { createServer } from 'node:http';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { execFile, execFileSync } from 'node:child_process';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
@@ -61,4 +62,56 @@ test('stop cleans up a crashed instance whose saved PID is alive again', t => {
   assert.equal(existsSync(data), false);
   assert.ok(invoke(['start']).includes('UI_TESTING_URL=http://127.0.0.1:4193'));
   assert.match(invoke(['stop']), /disposable data absent/);
+});
+
+test('the usage message names the script by its real path', () => {
+  assert.throws(() => invoke([]), /Usage: node checks\/ui-instance\.mjs start\|serve\|stop/);
+});
+
+// A serve killed between mkdir and writing instance.json leaves the directory with no handle.
+const seedOrphan = names => {
+  mkdirSync(data);
+  for (const name of names) writeFileSync(join(data, name), 'orphaned by a killed serve');
+};
+const failedStop = () => {
+  try { invoke(['stop']); } catch (error) { return error; }
+  assert.fail('stop exited 0');
+};
+
+test('stop removes a handle-less directory of known disposable files when nothing listens', t => {
+  assert.equal(existsSync(data), false, 'run ui:stop before the Node suite');
+  t.after(() => invoke(['stop']));
+  seedOrphan(['index.html', 'lab.js', 'host.css']);
+  assert.match(invoke(['stop']), /disposable data absent/);
+  assert.equal(existsSync(data), false);
+  assert.ok(invoke(['start']).includes('UI_TESTING_URL=http://127.0.0.1:4193'));
+  assert.match(invoke(['stop']), /disposable data absent/);
+  assert.equal(existsSync(data), false);
+});
+
+test('stop leaves a handle-less directory holding an unknown file and fails naming it', t => {
+  assert.equal(existsSync(data), false, 'run ui:stop before the Node suite');
+  t.after(() => rmSync(data, { recursive: true, force: true }));
+  seedOrphan(['lab.js', 'notes.txt']);
+  const error = failedStop();
+  assert.match(error.stderr, /notes\.txt/);
+  assert.doesNotMatch(error.stdout, /disposable data absent/);
+  assert.deepEqual(readdirSync(data).sort(), ['lab.js', 'notes.txt']);
+});
+
+test('stop removes nothing from a handle-less directory while something answers on the port', async t => {
+  assert.equal(existsSync(data), false, 'run ui:stop before the Node suite');
+  const unrelated = createServer((_req, res) => { res.writeHead(503); res.end('Not a UI instance'); });
+  await new Promise((resolve, reject) => { unrelated.once('error', reject); unrelated.listen(4193, '127.0.0.1', resolve); });
+  t.after(() => new Promise(resolve => unrelated.close(resolve)));
+  t.after(() => rmSync(data, { recursive: true, force: true }));
+  seedOrphan(['lab.js']);
+  // execFileSync would block this event loop and starve the stand-in server, so run stop asynchronously.
+  const result = await new Promise(resolve => execFile(process.execPath, [script, 'stop'], { cwd: root, encoding: 'utf8' },
+    (error, stdout, stderr) => resolve({ code: error?.code ?? 0, stdout, stderr })));
+  assert.notEqual(result.code, 0);
+  assert.match(result.stderr, /ownership/);
+  assert.doesNotMatch(result.stdout, /disposable data absent/);
+  assert.deepEqual(readdirSync(data), ['lab.js']);
+  assert.equal(unrelated.listening, true);
 });
