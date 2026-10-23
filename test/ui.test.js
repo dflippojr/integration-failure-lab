@@ -459,7 +459,7 @@ test('scenarios with poison, replay after fix or another delay are not expressib
   assert.equal(toFormValues({ failures: {}, safeguards: { retryLimit: 6 } }), null);
 });
 
-// The differential test (scripts/differential.mjs) must reach every run the Free-form can submit.
+// The differential test (scripts/differential.mjs) must reach every value of every Free-form control.
 test('the differential generator covers every Free-form control value', () => {
   const form = byClass(mount(undefined, 'free'), 'ifl-form');
   const checkboxes = form.find(e => e.tagName === 'INPUT').map(e => e.getAttribute('name'));
