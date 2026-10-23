@@ -9,9 +9,10 @@ const root = resolve(import.meta.dirname, '..');
 const data = join(root, '.ui-testing');
 const handle = join(data, 'instance.json');
 const origin = 'http://127.0.0.1:4193';
+const assets = ['index.html','lab.js','lab.css','engine.js','scenarios.js','executed.js','host.css'];
 const command = process.argv[2];
 if (!['start', 'serve', 'stop'].includes(command) || process.argv.length !== 3) {
-  throw new Error('Usage: node scripts/ui-instance.mjs start|serve|stop (no endpoints or credentials accepted)');
+  throw new Error('Usage: node checks/ui-instance.mjs start|serve|stop (no endpoints or credentials accepted)');
 }
 for (const [key, value] of Object.entries(process.env)) {
   if (/^UI_TESTING_/.test(key) && !(key === 'UI_TESTING_SYNTHETIC' && value === 'true')) {
@@ -50,6 +51,16 @@ if (command === 'stop') {
       for (let i = 0; i < 100 && existsSync(data); i++) await new Promise(r => setTimeout(r, 50));
       if (existsSync(data)) throw new Error('Teardown did not finish');
     }
+  } else if (existsSync(data)) {
+    // A serve killed before it wrote the handle leaves the directory behind. Only a refused
+    // connection proves no instance owns it; anything that answers, or hangs, might.
+    let refused = false;
+    try { await fetch(origin + '/__instance', { signal: AbortSignal.timeout(1000) }); } catch (error) { refused = error.cause?.code === 'ECONNREFUSED'; }
+    if (!refused) throw new Error('Disposable directory has no handle and port 4193 is in use; cannot verify instance ownership, removing nothing');
+    const unknown = readdirSync(data, { withFileTypes: true })
+      .filter(entry => !entry.isFile() || ![...assets, 'instance.json'].includes(entry.name)).map(entry => entry.name);
+    if (unknown.length) throw new Error('Disposable directory has no handle and holds unknown entries: ' + unknown.join(', ') + '; removing nothing');
+    clean();
   }
   console.log('UI instance stopped; disposable data absent');
 } else if (command === 'start') {
@@ -86,7 +97,7 @@ if (command === 'stop') {
       return;
     }
     const name = req.url === '/' ? 'index.html' : req.url?.slice(1);
-    if (!['index.html','lab.js','lab.css','engine.js','scenarios.js','executed.js','host.css'].includes(name)) { res.writeHead(404); res.end('Not found'); return; }
+    if (!assets.includes(name)) { res.writeHead(404); res.end('Not found'); return; }
     res.setHeader('Content-Type', types[name.slice(name.lastIndexOf('.'))]);
     res.end(readFileSync(join(data, name)));
   });
