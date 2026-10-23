@@ -111,19 +111,20 @@ public record Scenario(String id, int order, String title, Failures failures, Sa
         }
 
         Map<String, Object> g = (Map<String, Object>) json.getOrDefault("safeguards", Map.of());
-        Safeguards safeguards;
-        try {
-            safeguards = new Safeguards(
-                    ((Number) g.getOrDefault("retryLimit", 3)).intValue(),
-                    shown(g.getOrDefault("backoff", "exponential")),
-                    (Boolean) g.getOrDefault("idempotency", false),
-                    (Boolean) g.getOrDefault("ordering", false),
-                    (Boolean) g.getOrDefault("schemaValidation", false),
-                    (Boolean) g.getOrDefault("deadLetter", true),
-                    (Boolean) g.getOrDefault("replayAfterFix", false));
-        } catch (IllegalArgumentException invalid) {
-            throw new IllegalArgumentException("Scenario " + json.get("id") + ": " + invalid.getMessage(), invalid);
+        // Check the raw value, as the engine does: shown() would turn ["fixed"] into "fixed".
+        Object backoff = g.getOrDefault("backoff", "exponential");
+        if (!(backoff instanceof String name && Safeguards.BACKOFFS.contains(name))) {
+            throw new IllegalArgumentException("Scenario " + json.get("id") + ": "
+                    + unsupported("safeguards.backoff", backoff, "one of " + String.join(", ", Safeguards.BACKOFFS)));
         }
+        Safeguards safeguards = new Safeguards(
+                ((Number) g.getOrDefault("retryLimit", 3)).intValue(),
+                name,
+                (Boolean) g.getOrDefault("idempotency", false),
+                (Boolean) g.getOrDefault("ordering", false),
+                (Boolean) g.getOrDefault("schemaValidation", false),
+                (Boolean) g.getOrDefault("deadLetter", true),
+                (Boolean) g.getOrDefault("replayAfterFix", false));
 
         return new Scenario((String) json.get("id"), ((Number) json.getOrDefault("order", 0)).intValue(),
                 (String) json.get("title"), failures, safeguards,
@@ -132,7 +133,7 @@ public record Scenario(String id, int order, String title, Failures failures, Sa
 
     /**
      * Why the engine would refuse these failures (engine.js refusal() checks the same rules in the same order, with the
-     * same text), or null. The safeguards.backoff rule comes last, from the {@link Safeguards} constructor.
+     * same text), or null. The same-event and safeguards.backoff rules come last, in {@link #fromMap}.
      */
     private static String refusal(Map<String, Object> f) {
         for (String kind : FAILURE_KINDS) {
@@ -162,13 +163,18 @@ public record Scenario(String id, int order, String title, Failures failures, Sa
         return failure instanceof Map<?, ?> m ? m.get(name) : null;
     }
 
-    // JavaScript's Number.isInteger(n) && n > 0, for the numbers Jackson parses (500.0 is a whole number there too).
+    // engine.js attemptNumber(): a whole number from 1 to Integer.MAX_VALUE, for the numbers Jackson parses (2.0 is a
+    // whole number there too). The bound keeps intValue() from wrapping 4294967297 to attempt 1.
     private static boolean positiveInteger(Object n) {
         return n instanceof Number num && Double.isFinite(num.doubleValue()) && num.doubleValue() > 0
-                && num.doubleValue() == Math.rint(num.doubleValue());
+                && num.doubleValue() <= Integer.MAX_VALUE && num.doubleValue() == Math.rint(num.doubleValue());
     }
 
-    /** A JSON value as JavaScript's String() shows it, so a refusal reads the same on both sides. */
+    /**
+     * A JSON value as JavaScript's String() shows it, so a refusal reads the same on both sides. Doubles below 1e-6 or
+     * written as 1e15 and above come out in Java's notation ({@code 1.0E-7}), not JavaScript's ({@code 1e-7}); both
+     * sides still refuse such values, and no generated combination reaches them.
+     */
     static String shown(Object value) {
         return switch (value) {
             case null -> "null";

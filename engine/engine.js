@@ -44,6 +44,9 @@ export function backoffMs(kind, retryNumber) {
   throw new Error(`Unknown backoff: ${kind}`);
 }
 
+// A whole number the Java runner can hold as an int attempt, from 1 to 2^31 - 1 (Scenario.positiveInteger).
+const attemptNumber = n => Number.isInteger(n) && n > 0 && n <= 2 ** 31 - 1;
+
 // Why the Java runner would refuse this scenario (Scenario.fromMap checks the same rules in the same order, with the
 // same text), or null. Values are shown as String() shows them, which Scenario.shown mirrors.
 function refusal(failures, guards) {
@@ -55,7 +58,7 @@ function refusal(failures, guards) {
   }
   const attempts = failures.timeout?.attempts;
   if (failures.timeout != null && attempts !== 'all'
-    && !(Array.isArray(attempts) && attempts.length && attempts.every(n => Number.isInteger(n) && n > 0))) {
+    && !(Array.isArray(attempts) && attempts.length && attempts.every(attemptNumber))) {
     return unsupported('failures.timeout.attempts', attempts, '"all" or a non-empty list of positive integers');
   }
   if (failures.reorder != null && failures.reorder.delayMs !== TIMING.reorderDelayMs) {
