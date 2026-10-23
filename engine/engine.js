@@ -7,6 +7,7 @@ export const TIMING = Object.freeze({
   timeoutMs: 2000,       // sender gives up waiting for an ack after this long
   backoffBaseMs: 1000,
   replayAfterMs: 5000,   // each dead-lettered message is replayed this long after it was parked (the producer fix has shipped)
+  reorderDelayMs: 500,   // the one failures.reorder.delayMs a scenario may use: the Java runner has a single reorder delay
 });
 
 export const DEFAULT_SAFEGUARDS = Object.freeze({
@@ -18,6 +19,10 @@ export const DEFAULT_SAFEGUARDS = Object.freeze({
   deadLetter: true,          // park messages that give up instead of dropping them
   replayAfterFix: false,     // after the producer fix, replay each DLQ entry once, replayAfterMs after it was parked, with a fresh attempt count
 });
+
+const EVENT_TYPES = ['ClaimSubmitted', 'ClaimAccepted', 'ClaimPaid'];
+const FAILURE_KINDS = ['timeout', 'duplicate', 'reorder', 'schemaChange', 'poison'];
+const BACKOFFS = ['none', 'fixed', 'exponential'];
 
 const CLAIM_ID = 'C-1001';
 const AMOUNT_CENTS = 12000;
@@ -39,13 +44,39 @@ export function backoffMs(kind, retryNumber) {
   throw new Error(`Unknown backoff: ${kind}`);
 }
 
-export function run(scenario, overrides = {}) {
-  const failures = scenario.failures ?? {};
+// A whole number the Java runner can hold as an int attempt, from 1 to 2^31 - 1 (Scenario.positiveInteger).
+const attemptNumber = n => Number.isInteger(n) && n > 0 && n <= 2 ** 31 - 1;
+
+// Why the Java runner would refuse this scenario (Scenario.fromMap checks the same rules in the same order, with the
+// same text), or null. Values are shown as String() shows them, which Scenario.shown mirrors.
+function refusal(failures, guards) {
+  const unsupported = (path, value, expected) => `Unsupported ${path} "${String(value ?? null)}"; expected ${expected}`;
+  for (const kind of FAILURE_KINDS) {
+    if (failures[kind] != null && !EVENT_TYPES.includes(failures[kind].event)) {
+      return unsupported(`failures.${kind}.event`, failures[kind].event, `one of ${EVENT_TYPES.join(', ')}`);
+    }
+  }
+  const attempts = failures.timeout?.attempts;
+  if (failures.timeout != null && attempts !== 'all'
+    && !(Array.isArray(attempts) && attempts.length && attempts.every(attemptNumber))) {
+    return unsupported('failures.timeout.attempts', attempts, '"all" or a non-empty list of positive integers');
+  }
+  if (failures.reorder != null && failures.reorder.delayMs !== TIMING.reorderDelayMs) {
+    return unsupported('failures.reorder.delayMs', failures.reorder.delayMs, `${TIMING.reorderDelayMs}, the one delay the Java runner takes`);
+  }
   // Producer-side payload faults compose differently in each runtime, so a scenario may not stack them on one event.
   if (failures.poison && failures.poison.event === failures.schemaChange?.event) {
-    throw new Error(`Scenario ${scenario.id}: failures.poison and failures.schemaChange cannot target the same event (${failures.poison.event})`);
+    return `failures.poison and failures.schemaChange cannot target the same event (${failures.poison.event})`;
   }
+  if (!BACKOFFS.includes(guards.backoff)) return unsupported('safeguards.backoff', guards.backoff, `one of ${BACKOFFS.join(', ')}`);
+  return null;
+}
+
+export function run(scenario, overrides = {}) {
+  const failures = scenario.failures ?? {};
   const guards = { ...DEFAULT_SAFEGUARDS, ...scenario.safeguards, ...overrides };
+  const refused = refusal(failures, guards);
+  if (refused) throw new Error(`Scenario ${scenario.id}: ${refused}`);
   const events = claimEvents();
   const byType = Object.fromEntries(events.map(e => [e.type, e]));
 

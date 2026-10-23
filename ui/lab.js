@@ -75,7 +75,7 @@ export function toFormValues({ failures = {}, safeguards }) {
   const { timeout, duplicate, reorder, schemaChange, ...otherFailures } = failures;
   const { replayAfterFix, ...guards } = { ...DEFAULT_SAFEGUARDS, ...safeguards };
   const attempts = timeout ? Object.keys(TIMEOUT_ATTEMPTS).find(k => `${TIMEOUT_ATTEMPTS[k]}` === `${timeout.attempts}`) : 'first';
-  if (Object.keys(otherFailures).length || replayAfterFix || !attempts || (reorder && reorder.delayMs !== 500)
+  if (Object.keys(otherFailures).length || replayAfterFix || !attempts || (reorder && reorder.delayMs !== TIMING.reorderDelayMs)
     || (schemaChange && schemaChange.event !== 'ClaimPaid') || !RETRY_LIMITS.includes(guards.retryLimit) || !BACKOFFS.includes(guards.backoff)) return null;
   return {
     ...guards, timeout: !!timeout, timeoutEvent: timeout?.event ?? 'ClaimPaid', timeoutAttempts: attempts,
@@ -90,7 +90,7 @@ export function formScenario(get) {
   const failures = {};
   if (on('timeout')) failures.timeout = { event: get('timeoutEvent'), attempts: TIMEOUT_ATTEMPTS[get('timeoutAttempts')] ?? [1] };
   if (on('duplicate')) failures.duplicate = { event: get('duplicateEvent') };
-  if (on('reorder')) failures.reorder = { event: get('reorderEvent'), delayMs: 500 };
+  if (on('reorder')) failures.reorder = { event: get('reorderEvent'), delayMs: TIMING.reorderDelayMs };
   if (on('schemaChange')) failures.schemaChange = { event: 'ClaimPaid' };
   return { failures, safeguards: {
     retryLimit: Number(get('retryLimit')), backoff: get('backoff'), deadLetter: on('deadLetter'),
@@ -103,7 +103,7 @@ function settingText(v, name) {
   switch (name) {
     case 'timeout': return v.timeout ? `${v.timeoutEvent}, ${ATTEMPT_TEXT[v.timeoutAttempts]}` : 'off';
     case 'duplicate': return v.duplicate ? v.duplicateEvent : 'off';
-    case 'reorder': return v.reorder ? `${v.reorderEvent} by 500 ms` : 'off';
+    case 'reorder': return v.reorder ? `${v.reorderEvent} by ${TIMING.reorderDelayMs} ms` : 'off';
     case 'retryLimit': case 'backoff': return String(v[name]);
     default: return v[name] ? 'on' : 'off';
   }
@@ -308,7 +308,7 @@ export function mountLab(root, { headingLevel = 3, scenario } = {}) {
           h('select', { name: 'timeoutAttempts', 'aria-label': 'Which attempts time out' },
             Object.entries(ATTEMPT_TEXT).map(([value, text]) => h('option', { value, selected: value === v.timeoutAttempts }, text)))),
         h('div', { class: 'ifl-row' }, check('duplicate'), eventSelect('duplicateEvent', v.duplicateEvent, 'Event whose ack is lost')),
-        h('div', { class: 'ifl-row' }, check('reorder'), eventSelect('reorderEvent', v.reorderEvent, 'Event to delay'), h('span', {}, 'by 500 ms')),
+        h('div', { class: 'ifl-row' }, check('reorder'), eventSelect('reorderEvent', v.reorderEvent, 'Event to delay'), h('span', {}, `by ${TIMING.reorderDelayMs} ms`)),
         h('div', { class: 'ifl-row' }, check('schemaChange'))),
       h('fieldset', {}, h('legend', {}, 'Protect it'),
         h('div', { class: 'ifl-row' },

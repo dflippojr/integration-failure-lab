@@ -15,6 +15,12 @@ public record Scenario(String id, int order, String title, Failures failures, Sa
     // The id names the exported trace file, so it must not carry path separators or "..".
     static final Pattern ID_SHAPE = Pattern.compile("[a-z0-9]++(?:-[a-z0-9]++)*+");
 
+    static final List<String> EVENT_TYPES = List.of("ClaimSubmitted", "ClaimAccepted", "ClaimPaid");
+    static final List<String> FAILURE_KINDS = List.of("timeout", "duplicate", "reorder", "schemaChange", "poison");
+    // The engine's TIMING.reorderDelayMs, in its virtual ms. This runner delays by lab.reorder-delay-ms, whatever the
+    // scenario says, so it refuses any other value rather than run a different delay from the engine's.
+    static final int REORDER_DELAY_MS = 500;
+
     public record Failures(String timeoutEvent, Set<Integer> timeoutAttempts, boolean timeoutAll,
                            String duplicateEvent, String reorderEvent, String schemaChangeEvent,
                            String poisonEvent) {
@@ -83,6 +89,8 @@ public record Scenario(String id, int order, String title, Failures failures, Sa
     @SuppressWarnings("unchecked")
     public static Scenario fromMap(Map<String, Object> json) {
         Map<String, Object> f = (Map<String, Object>) json.getOrDefault("failures", Map.of());
+        String refused = refusal(f);
+        if (refused != null) throw new IllegalArgumentException("Scenario " + json.get("id") + ": " + refused);
         Map<String, Object> timeout = (Map<String, Object>) f.get("timeout");
         Object attempts = timeout == null ? null : timeout.get("attempts");
         Set<Integer> attemptSet = attempts instanceof List<?> list
@@ -103,23 +111,78 @@ public record Scenario(String id, int order, String title, Failures failures, Sa
         }
 
         Map<String, Object> g = (Map<String, Object>) json.getOrDefault("safeguards", Map.of());
-        Safeguards safeguards;
-        try {
-            safeguards = new Safeguards(
-                    ((Number) g.getOrDefault("retryLimit", 3)).intValue(),
-                    (String) g.getOrDefault("backoff", "exponential"),
-                    (Boolean) g.getOrDefault("idempotency", false),
-                    (Boolean) g.getOrDefault("ordering", false),
-                    (Boolean) g.getOrDefault("schemaValidation", false),
-                    (Boolean) g.getOrDefault("deadLetter", true),
-                    (Boolean) g.getOrDefault("replayAfterFix", false));
-        } catch (IllegalArgumentException invalid) {
-            throw new IllegalArgumentException("Scenario " + json.get("id") + ": " + invalid.getMessage(), invalid);
+        // Check the raw value, as the engine does: shown() would turn ["fixed"] into "fixed".
+        Object backoff = g.getOrDefault("backoff", "exponential");
+        if (!(backoff instanceof String name && Safeguards.BACKOFFS.contains(name))) {
+            throw new IllegalArgumentException("Scenario " + json.get("id") + ": "
+                    + unsupported("safeguards.backoff", backoff, "one of " + String.join(", ", Safeguards.BACKOFFS)));
         }
+        Safeguards safeguards = new Safeguards(
+                ((Number) g.getOrDefault("retryLimit", 3)).intValue(),
+                name,
+                (Boolean) g.getOrDefault("idempotency", false),
+                (Boolean) g.getOrDefault("ordering", false),
+                (Boolean) g.getOrDefault("schemaValidation", false),
+                (Boolean) g.getOrDefault("deadLetter", true),
+                (Boolean) g.getOrDefault("replayAfterFix", false));
 
         return new Scenario((String) json.get("id"), ((Number) json.getOrDefault("order", 0)).intValue(),
                 (String) json.get("title"), failures, safeguards,
                 (Map<String, Object>) json.getOrDefault("expect", Map.of()));
+    }
+
+    /**
+     * Why the engine would refuse these failures (engine.js refusal() checks the same rules in the same order, with the
+     * same text), or null. The same-event and safeguards.backoff rules come last, in {@link #fromMap}.
+     */
+    private static String refusal(Map<String, Object> f) {
+        for (String kind : FAILURE_KINDS) {
+            Object failure = f.get(kind);
+            if (failure != null && !(field(failure, "event") instanceof String event && EVENT_TYPES.contains(event))) {
+                return unsupported("failures." + kind + ".event", field(failure, "event"), "one of " + String.join(", ", EVENT_TYPES));
+            }
+        }
+        Object timeout = f.get("timeout");
+        Object attempts = field(timeout, "attempts");
+        if (timeout != null && !"all".equals(attempts)
+                && !(attempts instanceof List<?> list && !list.isEmpty() && list.stream().allMatch(Scenario::positiveInteger))) {
+            return unsupported("failures.timeout.attempts", attempts, "\"all\" or a non-empty list of positive integers");
+        }
+        Object reorder = f.get("reorder");
+        if (reorder != null && !(field(reorder, "delayMs") instanceof Number delay && delay.doubleValue() == REORDER_DELAY_MS)) {
+            return unsupported("failures.reorder.delayMs", field(reorder, "delayMs"), REORDER_DELAY_MS + ", the one delay the Java runner takes");
+        }
+        return null;
+    }
+
+    private static String unsupported(String path, Object value, String expected) {
+        return "Unsupported " + path + " \"" + shown(value) + "\"; expected " + expected;
+    }
+
+    private static Object field(Object failure, String name) {
+        return failure instanceof Map<?, ?> m ? m.get(name) : null;
+    }
+
+    // engine.js attemptNumber(): a whole number from 1 to Integer.MAX_VALUE, for the numbers Jackson parses (2.0 is a
+    // whole number there too). The bound keeps intValue() from wrapping 4294967297 to attempt 1.
+    private static boolean positiveInteger(Object n) {
+        return n instanceof Number num && Double.isFinite(num.doubleValue()) && num.doubleValue() > 0
+                && num.doubleValue() <= Integer.MAX_VALUE && num.doubleValue() == Math.rint(num.doubleValue());
+    }
+
+    /**
+     * A JSON value as JavaScript's String() shows it, so a refusal reads the same on both sides. Doubles below 1e-6 or
+     * written as 1e15 and above come out in Java's notation ({@code 1.0E-7}), not JavaScript's ({@code 1e-7}); both
+     * sides still refuse such values, and no generated combination reaches them.
+     */
+    static String shown(Object value) {
+        return switch (value) {
+            case null -> "null";
+            case Double d when Double.isFinite(d) && d == Math.rint(d) && Math.abs(d) < 1e15 -> Long.toString(d.longValue());
+            case List<?> list -> String.join(",", list.stream().map(e -> e == null ? "" : shown(e)).toList());
+            case Map<?, ?> ignored -> "[object Object]";
+            default -> value.toString();
+        };
     }
 
     @SuppressWarnings("unchecked")
