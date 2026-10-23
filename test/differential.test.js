@@ -45,6 +45,27 @@ test('the sample includes 3-way failure combinations and the poison + schema cha
   assert.ok(all.some(c => c.failures.poison && c.failures.poison.event === c.failures.schemaChange?.event));
 });
 
+test('every four-failure Free-form setting runs under the defaults and with the consumer safeguards on', () => {
+  const of = kind => failureSettings().filter(s => s.kind === kind);
+  const schema = of('schemaChange').find(s => s.value.event === 'ClaimPaid');
+  const safeguardSets = [{}, { idempotency: true, ordering: true, schemaValidation: true }].map(t => ({ ...DEFAULT_SAFEGUARDS, ...t }));
+  let settings = 0;
+  for (const timeout of of('timeout')) {
+    for (const duplicate of of('duplicate')) {
+      for (const reorder of of('reorder')) {
+        const failures = { timeout: timeout.value, duplicate: duplicate.value, reorder: reorder.value, schemaChange: schema.value };
+        for (const safeguards of safeguardSets) {
+          assert.ok(all.some(c => sameFailures(c, failures) && canonical(c.safeguards) === canonical(safeguards)),
+            `${timeout.label}+${duplicate.label}+${reorder.label}+${schema.label} with ${canonical(safeguards)}`);
+        }
+        settings++;
+      }
+    }
+  }
+  assert.equal(settings, 81, '9 timeouts x 3 ack-loss events x 3 delayed events, with the rename on');
+  assert.ok(byId.has('timeout-paid-all+ackloss-paid+reorder-paid+schema-paid__idempotency+ordering+schemaValidation'));
+});
+
 test('the engine outcome keeps ids and verdict and leaves timings out', () => {
   const c = byId.get('poison-paid__defaults');
   assert.deepEqual(engineOutcome(c), {
