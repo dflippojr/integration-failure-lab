@@ -1,12 +1,11 @@
 // Free-form combinations for differential testing: every scenario a visitor can build, plus the poison
 // failure and replayAfterFix that Guided scenarios reach. Pure and seeded, so every run sees the same list.
 // combinations() -> [{ id, failures, safeguards }], shaped like scenarios/*.json for engine.run() and the Java runner.
-import { DEFAULT_SAFEGUARDS } from '../../engine/engine.js';
+import { DEFAULT_SAFEGUARDS, TIMING } from '../../engine/engine.js';
 
 export const EVENT_TYPES = ['ClaimSubmitted', 'ClaimAccepted', 'ClaimPaid'];
 // The Free-form timeout choices in ui/lab.js (TIMEOUT_ATTEMPTS).
 const TIMEOUT_ATTEMPTS = { first: [1], two: [1, 2], all: 'all' };
-const REORDER_DELAY_MS = 500; // the only delay Free-form offers
 const RETRY_LIMITS = [0, 1, 2, 3, 4, 5];
 const BACKOFFS = ['exponential', 'fixed', 'none'];
 const TOGGLES = ['idempotency', 'ordering', 'schemaValidation', 'deadLetter', 'replayAfterFix'];
@@ -24,7 +23,7 @@ export function failureSettings() {
     }
   }
   for (const event of EVENT_TYPES) settings.push({ kind: 'duplicate', label: `ackloss-${SHORT[event]}`, value: { event } });
-  for (const event of EVENT_TYPES) settings.push({ kind: 'reorder', label: `reorder-${SHORT[event]}`, value: { event, delayMs: REORDER_DELAY_MS } });
+  for (const event of EVENT_TYPES) settings.push({ kind: 'reorder', label: `reorder-${SHORT[event]}`, value: { event, delayMs: TIMING.reorderDelayMs } });
   for (const event of EVENT_TYPES) settings.push({ kind: 'schemaChange', label: `schema-${SHORT[event]}`, value: { event } });
   for (const event of EVENT_TYPES) settings.push({ kind: 'poison', label: `poison-${SHORT[event]}`, value: { event } });
   return settings;
