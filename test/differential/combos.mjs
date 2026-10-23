@@ -1,5 +1,7 @@
-// Free-form combinations for differential testing: every scenario a visitor can build, plus the poison
-// failure and replayAfterFix that Guided scenarios reach. Pure and seeded, so every run sees the same list.
+// Combinations for differential testing, covering Free-form and the poison failure and replayAfterFix that
+// Guided scenarios reach: each failure setting under each single safeguard change, each pair of failure kinds
+// under the defaults, every four-failure Free-form setting under two safeguard sets, and a seeded sample of
+// three-kind runs. Not every Free-form run: the form has 92,160. Pure and seeded, so every run sees the same list.
 // combinations() -> [{ id, failures, safeguards }], shaped like scenarios/*.json for engine.run() and the Java runner.
 import { DEFAULT_SAFEGUARDS, TIMING } from '../../engine/engine.js';
 
@@ -9,6 +11,8 @@ const TIMEOUT_ATTEMPTS = { first: [1], two: [1, 2], all: 'all' };
 const RETRY_LIMITS = [0, 1, 2, 3, 4, 5];
 const BACKOFFS = ['exponential', 'fixed', 'none'];
 const TOGGLES = ['idempotency', 'ordering', 'schemaValidation', 'deadLetter', 'replayAfterFix'];
+// The safeguard sets the four-failure stratum runs under: the defaults, and the consumer safeguards on.
+const FOUR_FAILURE_SAFEGUARDS = [{}, { idempotency: true, ordering: true, schemaValidation: true }];
 export const SEED = 93;
 export const RANDOM_SAMPLE = 150;
 
@@ -87,6 +91,17 @@ export function combinations({ seed = SEED, sample = RANDOM_SAMPLE } = {}) {
   for (let i = 0; i < settings.length; i++) {
     for (let j = i + 1; j < settings.length; j++) {
       if (settings[i].kind !== settings[j].kind) add(combo([settings[i], settings[j]], {}));
+    }
+  }
+  // Every Free-form run with all four failure kinds: each timeout, ack-loss and delay target, with the
+  // rename (Free-form renames on ClaimPaid only), under each FOUR_FAILURE_SAFEGUARDS set.
+  const of = kind => settings.filter(s => s.kind === kind);
+  const rename = of('schemaChange').find(s => s.value.event === 'ClaimPaid');
+  for (const timeout of of('timeout')) {
+    for (const duplicate of of('duplicate')) {
+      for (const reorder of of('reorder')) {
+        for (const t of FOUR_FAILURE_SAFEGUARDS) add(combo([timeout, duplicate, reorder, rename], t));
+      }
     }
   }
   // Seeded 3-way sample: three failure kinds on random targets, with every safeguard drawn at random.

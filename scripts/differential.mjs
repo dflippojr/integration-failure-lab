@@ -1,6 +1,9 @@
-// Differential test: runs every Free-form combination through the browser engine and through the Java
-// runner over real HTTP, then fails on any outcome they disagree on that test/differential/known.json does
-// not explain. Needs the runner jar: cd java && ./mvnw -B package -DskipTests
+// Differential test: runs the generated combinations (test/differential/combos.mjs) through the browser
+// engine and through the Java runner over real HTTP, then fails on any outcome they disagree on that
+// test/differential/known.json does not explain. They are each failure setting under each single safeguard
+// change, each pair of failure kinds under the defaults, every four-failure Free-form setting under the
+// defaults and with the consumer safeguards on, and a seeded sample of three-kind runs; not the whole
+// Free-form space. Needs the runner jar: cd java && ./mvnw -B package -DskipTests
 //
 //   npm run differential                      all combinations
 //   npm run differential -- --only <id> ...   just these (the repro line each mismatch prints)

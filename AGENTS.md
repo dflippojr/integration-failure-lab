@@ -7,7 +7,7 @@ integration-failure-lab has two implementations of one model: the JS engine (`en
 - **`npm run ci:local` is the full gate.** It runs the five jobs that the `gate` check in `.github/workflows/ci.yml` requires, one after another:
   - `npm run lint && npm run test:coverage`: ESLint's recommended rules (`eslint.config.js`), then `npm test` with the Node coverage floors.
   - `./mvnw -B verify -DforkCount=1` in `java/`, including the JaCoCo line-coverage floor.
-  - `./mvnw -B package -DskipTests` in `java/`, then `npm run differential`: every Free-form combination through the engine and the Java runner, failing on any outcome difference that `test/differential/known.json` does not explain.
+  - `./mvnw -B package -DskipTests` in `java/`, then `npm run differential`: the generated combinations (`test/differential/combos.mjs`: each failure setting under each single safeguard change, each pair of failure kinds under the defaults, every four-failure Free-form setting under the defaults and with idempotency, ordering and schema validation on, and a seeded sample of three-kind runs) through the engine and the Java runner, failing on any outcome difference that `test/differential/known.json` does not explain.
   - `./mvnw -B package -DskipTests` in `java/`, then `npm run recordings`: re-records every scenario and fails when the committed `executed/` differs from what the Java runner does, apart from wall-clock timing.
   - `npm run test:ui -- --workers=1`.
 
