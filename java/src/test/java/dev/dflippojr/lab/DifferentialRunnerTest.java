@@ -86,5 +86,12 @@ class DifferentialRunnerTest {
         assertThat(DifferentialRunner.outcome(runner, Map.of("id", "backoff-bogus", "safeguards", Map.of("backoff", "bogus"))))
                 .isEqualTo(Map.of("error", "Scenario backoff-bogus: Unsupported safeguards.backoff \"bogus\";"
                         + " expected one of none, fixed, exponential"));
+        assertThat(DifferentialRunner.outcome(runner, Map.of("id", "backoff-list", "safeguards", Map.of("backoff", List.of("fixed")))))
+                .isEqualTo(Map.of("error", "Scenario backoff-list: Unsupported safeguards.backoff \"fixed\";"
+                        + " expected one of none, fixed, exponential"));
+        assertThat(DifferentialRunner.outcome(runner, Map.of("id", "timeout-huge-attempt",
+                "failures", Map.of("timeout", Map.of("event", "ClaimPaid", "attempts", List.of(4294967297L))))))
+                .isEqualTo(Map.of("error", "Scenario timeout-huge-attempt: Unsupported failures.timeout.attempts \"4294967297\";"
+                        + " expected \"all\" or a non-empty list of positive integers"));
     }
 }

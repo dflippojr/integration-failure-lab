@@ -67,6 +67,10 @@ test('the engine outcome of each refused scenario is the error the Java runner g
       'Unsupported failures.reorder.delayMs "50"; expected 500, the one delay the Java runner takes'],
     'backoff-bogus': [{}, { backoff: 'bogus' },
       'Unsupported safeguards.backoff "bogus"; expected one of none, fixed, exponential'],
+    'backoff-list': [{}, { backoff: ['fixed'] },
+      'Unsupported safeguards.backoff "fixed"; expected one of none, fixed, exponential'],
+    'timeout-huge-attempt': [{ timeout: { event: 'ClaimPaid', attempts: [4294967297] } }, {},
+      'Unsupported failures.timeout.attempts "4294967297"; expected "all" or a non-empty list of positive integers'],
   };
   for (const [id, [failures, safeguards, message]] of Object.entries(refused)) {
     assert.deepEqual(engineOutcome({ id, failures, safeguards }), { error: `Scenario ${id}: ${message}` });

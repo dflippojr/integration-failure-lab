@@ -176,6 +176,8 @@ test('timeout attempts that are neither "all" nor a non-empty list of positive i
   refuses({ id: 'x-attempts-zero', failures: { timeout: { event: 'ClaimPaid', attempts: [1, 0] } } }, `Unsupported failures.timeout.attempts "1,0"; ${expected}`);
   refuses({ id: 'x-attempts-fraction', failures: { timeout: { event: 'ClaimPaid', attempts: [1.5] } } }, `Unsupported failures.timeout.attempts "1.5"; ${expected}`);
   refuses({ id: 'x-attempts-word', failures: { timeout: { event: 'ClaimPaid', attempts: 'first' } } }, `Unsupported failures.timeout.attempts "first"; ${expected}`);
+  // Past Java's int range: the Java runner would wrap 4294967297 to attempt 1, so neither side takes it.
+  refuses({ id: 'x-attempts-huge', failures: { timeout: { event: 'ClaimPaid', attempts: [4294967297] } } }, `Unsupported failures.timeout.attempts "4294967297"; ${expected}`);
 });
 
 test('a reorder delay other than 500 ms, including a missing one, is rejected when the scenario runs', () => {
@@ -189,6 +191,8 @@ test('an unsupported backoff is rejected when the scenario runs, even when nothi
   const message = 'Unsupported safeguards.backoff "bogus"; expected one of none, fixed, exponential';
   refuses({ id: 'x-backoff-quiet', safeguards: { backoff: 'bogus' } }, message);
   refuses({ id: 'x-backoff-retry', failures: { poison: { event: 'ClaimPaid' } }, safeguards: { backoff: 'bogus' } }, message);
+  // A list is not a backoff, even one that String() shows as a supported name.
+  refuses({ id: 'x-backoff-list', safeguards: { backoff: ['fixed'] } }, 'Unsupported safeguards.backoff "fixed"; expected one of none, fixed, exponential');
 });
 
 test('overrides replace scenario safeguards (free-form mode)', () => {

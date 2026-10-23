@@ -73,7 +73,9 @@ class ScenarioTest {
                 refused("x-attempts-empty", Map.of("timeout", Map.of("event", "ClaimPaid", "attempts", List.of())), "Unsupported failures.timeout.attempts \"\"; " + ATTEMPTS),
                 refused("x-attempts-zero", Map.of("timeout", Map.of("event", "ClaimPaid", "attempts", List.of(1, 0))), "Unsupported failures.timeout.attempts \"1,0\"; " + ATTEMPTS),
                 refused("x-attempts-fraction", Map.of("timeout", Map.of("event", "ClaimPaid", "attempts", List.of(1.5))), "Unsupported failures.timeout.attempts \"1.5\"; " + ATTEMPTS),
-                refused("x-attempts-word", Map.of("timeout", Map.of("event", "ClaimPaid", "attempts", "first")), "Unsupported failures.timeout.attempts \"first\"; " + ATTEMPTS));
+                refused("x-attempts-word", Map.of("timeout", Map.of("event", "ClaimPaid", "attempts", "first")), "Unsupported failures.timeout.attempts \"first\"; " + ATTEMPTS),
+                // Jackson parses this as a Long, which intValue() used to wrap to attempt 1.
+                refused("x-attempts-huge", Map.of("timeout", Map.of("event", "ClaimPaid", "attempts", List.of(4294967297L))), "Unsupported failures.timeout.attempts \"4294967297\"; " + ATTEMPTS));
     }
 
     static Stream<Arguments> unsupportedReorderDelays() {
@@ -105,6 +107,14 @@ class ScenarioTest {
         assertThatThrownBy(() -> Scenario.fromMap(Map.of("id", "x-backoff-quiet", "safeguards", Map.of("backoff", "bogus"))))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("Scenario x-backoff-quiet: Unsupported safeguards.backoff \"bogus\"; expected one of none, fixed, exponential");
+    }
+
+    @Test
+    void aListBackoffIsRejectedAtLoadEvenWhenItsOnlyElementIsSupported() {
+        // The engine compares the raw value, so ["fixed"] is not "fixed" there either.
+        assertThatThrownBy(() -> Scenario.fromMap(Map.of("id", "x-backoff-list", "safeguards", Map.of("backoff", List.of("fixed")))))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Scenario x-backoff-list: Unsupported safeguards.backoff \"fixed\"; expected one of none, fixed, exponential");
     }
 
     @Test
