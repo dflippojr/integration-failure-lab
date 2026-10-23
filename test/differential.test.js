@@ -56,6 +56,23 @@ test('the engine outcome keeps ids and verdict and leaves timings out', () => {
   assert.match(engineOutcome(byId.get('schema-paid+poison-paid__defaults')).error, /cannot target the same event/);
 });
 
+// The same scenarios and messages as DifferentialRunnerTest.refusedScenariosComeBackAsTheErrorTheEngineGives.
+test('the engine outcome of each refused scenario is the error the Java runner gives', () => {
+  const refused = {
+    'poison-typo': [{ poison: { event: 'ClaimPayed' } }, {},
+      'Unsupported failures.poison.event "ClaimPayed"; expected one of ClaimSubmitted, ClaimAccepted, ClaimPaid'],
+    'timeout-no-attempts': [{ timeout: { event: 'ClaimPaid' } }, {},
+      'Unsupported failures.timeout.attempts "null"; expected "all" or a non-empty list of positive integers'],
+    'reorder-50': [{ reorder: { event: 'ClaimAccepted', delayMs: 50 } }, {},
+      'Unsupported failures.reorder.delayMs "50"; expected 500, the one delay the Java runner takes'],
+    'backoff-bogus': [{}, { backoff: 'bogus' },
+      'Unsupported safeguards.backoff "bogus"; expected one of none, fixed, exponential'],
+  };
+  for (const [id, [failures, safeguards, message]] of Object.entries(refused)) {
+    assert.deepEqual(engineOutcome({ id, failures, safeguards }), { error: `Scenario ${id}: ${message}` });
+  }
+});
+
 test('compare separates agreement, owner-decided divergences, stale entries and unexplained mismatches', () => {
   const [a, b, c, d] = all;
   const ok = { record: { status: 'Paid' }, dlq: [] };

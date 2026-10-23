@@ -25,6 +25,9 @@ class DifferentialRunnerTest {
     DifferentialRunner differential;
 
     @Autowired
+    ScenarioRunner runner;
+
+    @Autowired
     ObjectMapper json;
 
     @TempDir
@@ -63,5 +66,25 @@ class DifferentialRunnerTest {
         assertThat((Map<String, Object>) outcomes.get(2).get("outcome")).containsOnlyKeys("error");
         assertThat((String) ((Map<String, Object>) outcomes.get(2).get("outcome")).get("error"))
                 .isEqualTo("Scenario schema-paid+poison-paid__defaults: failures.poison and failures.schemaChange cannot target the same event (ClaimPaid)");
+    }
+
+    @Test
+    void refusedScenariosComeBackAsTheErrorTheEngineGives() throws Exception {
+        // The same scenarios and messages as the engineOutcome refusal test in test/differential.test.js.
+        assertThat(DifferentialRunner.outcome(runner, Map.of("id", "poison-typo",
+                "failures", Map.of("poison", Map.of("event", "ClaimPayed")))))
+                .isEqualTo(Map.of("error", "Scenario poison-typo: Unsupported failures.poison.event \"ClaimPayed\";"
+                        + " expected one of ClaimSubmitted, ClaimAccepted, ClaimPaid"));
+        assertThat(DifferentialRunner.outcome(runner, Map.of("id", "timeout-no-attempts",
+                "failures", Map.of("timeout", Map.of("event", "ClaimPaid")))))
+                .isEqualTo(Map.of("error", "Scenario timeout-no-attempts: Unsupported failures.timeout.attempts \"null\";"
+                        + " expected \"all\" or a non-empty list of positive integers"));
+        assertThat(DifferentialRunner.outcome(runner, Map.of("id", "reorder-50",
+                "failures", Map.of("reorder", Map.of("event", "ClaimAccepted", "delayMs", 50)))))
+                .isEqualTo(Map.of("error", "Scenario reorder-50: Unsupported failures.reorder.delayMs \"50\";"
+                        + " expected 500, the one delay the Java runner takes"));
+        assertThat(DifferentialRunner.outcome(runner, Map.of("id", "backoff-bogus", "safeguards", Map.of("backoff", "bogus"))))
+                .isEqualTo(Map.of("error", "Scenario backoff-bogus: Unsupported safeguards.backoff \"bogus\";"
+                        + " expected one of none, fixed, exponential"));
     }
 }

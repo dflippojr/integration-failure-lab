@@ -157,6 +157,40 @@ test('poison and a schema change on the same event are rejected when the scenari
   });
 });
 
+// Each refusal is checked before anything is scheduled, with the message Scenario.fromMap gives (ScenarioTest).
+const refuses = (scenario, message) => assert.throws(() => run(scenario), { message: `Scenario ${scenario.id}: ${message}` });
+
+test('a failure that targets an unknown event type is rejected when the scenario runs', () => {
+  const expected = 'expected one of ClaimSubmitted, ClaimAccepted, ClaimPaid';
+  refuses({ id: 'x-poison-typo', failures: { poison: { event: 'ClaimPayed' } } }, `Unsupported failures.poison.event "ClaimPayed"; ${expected}`);
+  refuses({ id: 'x-timeout-typo', failures: { timeout: { event: 'ClaimPayed', attempts: 'all' } } }, `Unsupported failures.timeout.event "ClaimPayed"; ${expected}`);
+  refuses({ id: 'x-duplicate-none', failures: { duplicate: {} } }, `Unsupported failures.duplicate.event "null"; ${expected}`);
+  refuses({ id: 'x-reorder-typo', failures: { reorder: { event: 'claimAccepted', delayMs: 500 } } }, `Unsupported failures.reorder.event "claimAccepted"; ${expected}`);
+  refuses({ id: 'x-schema-number', failures: { schemaChange: { event: 3 } } }, `Unsupported failures.schemaChange.event "3"; ${expected}`);
+});
+
+test('timeout attempts that are neither "all" nor a non-empty list of positive integers are rejected when the scenario runs', () => {
+  const expected = 'expected "all" or a non-empty list of positive integers';
+  refuses({ id: 'x-attempts-missing', failures: { timeout: { event: 'ClaimPaid' } } }, `Unsupported failures.timeout.attempts "null"; ${expected}`);
+  refuses({ id: 'x-attempts-empty', failures: { timeout: { event: 'ClaimPaid', attempts: [] } } }, `Unsupported failures.timeout.attempts ""; ${expected}`);
+  refuses({ id: 'x-attempts-zero', failures: { timeout: { event: 'ClaimPaid', attempts: [1, 0] } } }, `Unsupported failures.timeout.attempts "1,0"; ${expected}`);
+  refuses({ id: 'x-attempts-fraction', failures: { timeout: { event: 'ClaimPaid', attempts: [1.5] } } }, `Unsupported failures.timeout.attempts "1.5"; ${expected}`);
+  refuses({ id: 'x-attempts-word', failures: { timeout: { event: 'ClaimPaid', attempts: 'first' } } }, `Unsupported failures.timeout.attempts "first"; ${expected}`);
+});
+
+test('a reorder delay other than 500 ms, including a missing one, is rejected when the scenario runs', () => {
+  const expected = 'expected 500, the one delay the Java runner takes';
+  refuses({ id: 'x-delay-50', failures: { reorder: { event: 'ClaimAccepted', delayMs: 50 } } }, `Unsupported failures.reorder.delayMs "50"; ${expected}`);
+  refuses({ id: 'x-delay-missing', failures: { reorder: { event: 'ClaimAccepted' } } }, `Unsupported failures.reorder.delayMs "null"; ${expected}`);
+  assert.equal(run({ id: 'x-delay-500', failures: { reorder: { event: 'ClaimAccepted', delayMs: TIMING.reorderDelayMs } } }).verdict.ok, false);
+});
+
+test('an unsupported backoff is rejected when the scenario runs, even when nothing retries', () => {
+  const message = 'Unsupported safeguards.backoff "bogus"; expected one of none, fixed, exponential';
+  refuses({ id: 'x-backoff-quiet', safeguards: { backoff: 'bogus' } }, message);
+  refuses({ id: 'x-backoff-retry', failures: { poison: { event: 'ClaimPaid' } }, safeguards: { backoff: 'bogus' } }, message);
+});
+
 test('overrides replace scenario safeguards (free-form mode)', () => {
   const r = run(byId('2a-duplicate'), { idempotency: true });
   assert.equal(r.verdict.ok, true);

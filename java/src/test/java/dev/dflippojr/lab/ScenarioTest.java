@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
 
@@ -45,6 +46,74 @@ class ScenarioTest {
         assertThatThrownBy(() -> Scenario.fromMap(json))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("Scenario x2-poison-schema: failures.poison and failures.schemaChange cannot target the same event (ClaimPaid)");
+    }
+
+    private static final String EVENTS = "expected one of ClaimSubmitted, ClaimAccepted, ClaimPaid";
+    private static final String ATTEMPTS = "expected \"all\" or a non-empty list of positive integers";
+    private static final String DELAY = "expected 500, the one delay the Java runner takes";
+
+    private static Arguments refused(String id, Map<String, Object> failures, String message) {
+        return Arguments.of(id, Map.of("id", id, "failures", failures), "Scenario " + id + ": " + message);
+    }
+
+    // The same cases and messages as the refusal tests in test/engine.test.js, so both sides refuse alike.
+    static Stream<Arguments> unknownEvents() {
+        Map<String, Object> noEvent = new HashMap<>();
+        return Stream.of(
+                refused("x-poison-typo", Map.of("poison", Map.of("event", "ClaimPayed")), "Unsupported failures.poison.event \"ClaimPayed\"; " + EVENTS),
+                refused("x-timeout-typo", Map.of("timeout", Map.of("event", "ClaimPayed", "attempts", "all")), "Unsupported failures.timeout.event \"ClaimPayed\"; " + EVENTS),
+                refused("x-duplicate-none", Map.of("duplicate", noEvent), "Unsupported failures.duplicate.event \"null\"; " + EVENTS),
+                refused("x-reorder-typo", Map.of("reorder", Map.of("event", "claimAccepted", "delayMs", 500)), "Unsupported failures.reorder.event \"claimAccepted\"; " + EVENTS),
+                refused("x-schema-number", Map.of("schemaChange", Map.of("event", 3)), "Unsupported failures.schemaChange.event \"3\"; " + EVENTS));
+    }
+
+    static Stream<Arguments> invalidTimeoutAttempts() {
+        return Stream.of(
+                refused("x-attempts-missing", Map.of("timeout", Map.of("event", "ClaimPaid")), "Unsupported failures.timeout.attempts \"null\"; " + ATTEMPTS),
+                refused("x-attempts-empty", Map.of("timeout", Map.of("event", "ClaimPaid", "attempts", List.of())), "Unsupported failures.timeout.attempts \"\"; " + ATTEMPTS),
+                refused("x-attempts-zero", Map.of("timeout", Map.of("event", "ClaimPaid", "attempts", List.of(1, 0))), "Unsupported failures.timeout.attempts \"1,0\"; " + ATTEMPTS),
+                refused("x-attempts-fraction", Map.of("timeout", Map.of("event", "ClaimPaid", "attempts", List.of(1.5))), "Unsupported failures.timeout.attempts \"1.5\"; " + ATTEMPTS),
+                refused("x-attempts-word", Map.of("timeout", Map.of("event", "ClaimPaid", "attempts", "first")), "Unsupported failures.timeout.attempts \"first\"; " + ATTEMPTS));
+    }
+
+    static Stream<Arguments> unsupportedReorderDelays() {
+        return Stream.of(
+                refused("x-delay-50", Map.of("reorder", Map.of("event", "ClaimAccepted", "delayMs", 50)), "Unsupported failures.reorder.delayMs \"50\"; " + DELAY),
+                refused("x-delay-missing", Map.of("reorder", Map.of("event", "ClaimAccepted")), "Unsupported failures.reorder.delayMs \"null\"; " + DELAY));
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("unknownEvents")
+    void aFailureThatTargetsAnUnknownEventTypeIsRejectedAtLoad(String ignoredId, Map<String, Object> json, String message) {
+        assertThatThrownBy(() -> Scenario.fromMap(json)).isInstanceOf(IllegalArgumentException.class).hasMessage(message);
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("invalidTimeoutAttempts")
+    void timeoutAttemptsThatAreNeitherAllNorPositiveIntegersAreRejectedAtLoad(String ignoredId, Map<String, Object> json, String message) {
+        assertThatThrownBy(() -> Scenario.fromMap(json)).isInstanceOf(IllegalArgumentException.class).hasMessage(message);
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("unsupportedReorderDelays")
+    void aReorderDelayOtherThan500IncludingAMissingOneIsRejectedAtLoad(String ignoredId, Map<String, Object> json, String message) {
+        assertThatThrownBy(() -> Scenario.fromMap(json)).isInstanceOf(IllegalArgumentException.class).hasMessage(message);
+    }
+
+    @Test
+    void anUnsupportedBackoffIsRejectedAtLoadEvenWhenNothingRetries() {
+        assertThatThrownBy(() -> Scenario.fromMap(Map.of("id", "x-backoff-quiet", "safeguards", Map.of("backoff", "bogus"))))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Scenario x-backoff-quiet: Unsupported safeguards.backoff \"bogus\"; expected one of none, fixed, exponential");
+    }
+
+    @Test
+    void theShippedReorderDelayAndWholeNumberAttemptsStillLoad() {
+        Scenario scenario = Scenario.fromMap(Map.of("id", "ok", "failures", Map.of(
+                "reorder", Map.of("event", "ClaimAccepted", "delayMs", 500.0),
+                "timeout", Map.of("event", "ClaimPaid", "attempts", List.of(1, 2.0)))));
+        assertThat(scenario.failures().delayed("ClaimAccepted", 1)).isTrue();
+        assertThat(scenario.failures().timeoutAttempts()).containsExactlyInAnyOrder(1, 2);
     }
 
     @Test
