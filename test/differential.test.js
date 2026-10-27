@@ -96,6 +96,8 @@ test('the engine outcome of each refused scenario is the error the Java runner g
     'retry-text': [{}, { retryLimit: '3' }, 'Unsupported safeguards.retryLimit "3"; expected a whole number from 0 to 2147483647'],
     'retry-null': [{}, { retryLimit: null }, 'Unsupported safeguards.retryLimit "null"; expected a whole number from 0 to 2147483647'],
     'retry-huge': [{}, { retryLimit: 4294967297 }, 'Unsupported safeguards.retryLimit "4294967297"; expected a whole number from 0 to 2147483647'],
+    'retry-fraction': [{}, { retryLimit: 0.0001 }, 'Unsupported safeguards.retryLimit "0.0001"; expected a whole number from 0 to 2147483647'],
+    'idempotency-fraction': [{}, { idempotency: 0.0001 }, 'Unsupported safeguards.idempotency "0.0001"; expected true or false'],
   };
   for (const [id, [failures, safeguards, message]] of Object.entries(refused)) {
     assert.deepEqual(engineOutcome({ id, failures, safeguards }), { error: `Scenario ${id}: ${message}` });

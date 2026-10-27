@@ -3,6 +3,8 @@ package dev.dflippojr.lab;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -133,6 +135,9 @@ class ScenarioTest {
                 refusedSafeguard("x-retry-null", "retryLimit", null, "Unsupported safeguards.retryLimit \"null\"; " + RETRY_LIMIT),
                 refusedSafeguard("x-retry-negative", "retryLimit", -1, "Unsupported safeguards.retryLimit \"-1\"; " + RETRY_LIMIT),
                 refusedSafeguard("x-retry-fraction", "retryLimit", 1.5, "Unsupported safeguards.retryLimit \"1.5\"; " + RETRY_LIMIT),
+                refusedSafeguard("x-retry-tiny", "retryLimit", 0.0001, "Unsupported safeguards.retryLimit \"0.0001\"; " + RETRY_LIMIT),
+                refusedSafeguard("x-retry-tinier", "retryLimit", 1e-7, "Unsupported safeguards.retryLimit \"1e-7\"; " + RETRY_LIMIT),
+                refusedSafeguard("x-retry-vast", "retryLimit", 1.5e21, "Unsupported safeguards.retryLimit \"1.5e+21\"; " + RETRY_LIMIT),
                 // Past the int range: intValue() would wrap 4294967297 to 1 retry.
                 refusedSafeguard("x-retry-huge", "retryLimit", 4294967297L, "Unsupported safeguards.retryLimit \"4294967297\"; " + RETRY_LIMIT),
                 refusedSafeguard("x-idempotency-text", "idempotency", "false", "Unsupported safeguards.idempotency \"false\"; " + ON_OFF),
@@ -141,6 +146,7 @@ class ScenarioTest {
                 refusedSafeguard("x-deadLetter-text", "deadLetter", "false", "Unsupported safeguards.deadLetter \"false\"; " + ON_OFF),
                 refusedSafeguard("x-replayAfterFix-text", "replayAfterFix", "false", "Unsupported safeguards.replayAfterFix \"false\"; " + ON_OFF),
                 refusedSafeguard("x-dedupe-number", "idempotency", 1, "Unsupported safeguards.idempotency \"1\"; " + ON_OFF),
+                refusedSafeguard("x-dedupe-fraction", "idempotency", 0.0001, "Unsupported safeguards.idempotency \"0.0001\"; " + ON_OFF),
                 refusedSafeguard("x-dlq-null", "deadLetter", null, "Unsupported safeguards.deadLetter \"null\"; " + ON_OFF));
     }
 
@@ -148,6 +154,27 @@ class ScenarioTest {
     @MethodSource("unsupportedSafeguards")
     void aRetryLimitOrOnOffSafeguardOfTheWrongTypeOrRangeIsRejectedAtLoad(String ignoredId, Map<String, Object> json, String message) {
         assertThatThrownBy(() -> Scenario.fromMap(json)).isInstanceOf(IllegalArgumentException.class).hasMessage(message);
+    }
+
+    // What node prints for String(x) of the same JSON number: plain decimal from 1e-7 up to 1e21, the shortest digits
+    // that read back as the same double, and E-notation with a sign outside that range.
+    static Stream<Arguments> numbersAsJavaScriptShowsThem() {
+        return Stream.of(
+                Arguments.of(0.0001, "0.0001"), Arguments.of(0.000001, "0.000001"), Arguments.of(1e-7, "1e-7"),
+                Arguments.of(-1e-7, "-1e-7"), Arguments.of(1.23e-18, "1.23e-18"), Arguments.of(Double.MIN_VALUE, "5e-324"),
+                Arguments.of(0.1 + 0.2, "0.30000000000000004"), Arguments.of(4.35, "4.35"), Arguments.of(1278262360055478.75, "1278262360055478.8"), Arguments.of(-1.5, "-1.5"),
+                Arguments.of(-0.0, "0"), Arguments.of(2.0, "2"), Arguments.of(1e16, "10000000000000000"),
+                Arguments.of(1.2345678901234568e20, "123456789012345680000"), Arguments.of(1e21, "1e+21"),
+                Arguments.of(1.5e21, "1.5e+21"), Arguments.of(Double.MAX_VALUE, "1.7976931348623157e+308"),
+                Arguments.of(4294967297L, "4294967297"), Arguments.of(new BigInteger("12345678901234567890"), "12345678901234567000"),
+                Arguments.of(new BigDecimal("0.0001"), "0.0001"), Arguments.of(Double.POSITIVE_INFINITY, "Infinity"),
+                Arguments.of(Double.NaN, "NaN"));
+    }
+
+    @ParameterizedTest(name = "{1}")
+    @MethodSource("numbersAsJavaScriptShowsThem")
+    void aNumberIsShownAsJavaScriptsStringShowsIt(Number value, String shown) {
+        assertThat(Scenario.shown(value)).isEqualTo(shown);
     }
 
     @Test

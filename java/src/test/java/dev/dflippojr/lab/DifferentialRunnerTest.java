@@ -107,5 +107,10 @@ class DifferentialRunnerTest {
         assertThat(DifferentialRunner.outcome(runner, Map.of("id", "retry-huge", "safeguards", Map.of("retryLimit", 4294967297L))))
                 .isEqualTo(Map.of("error", "Scenario retry-huge: Unsupported safeguards.retryLimit \"4294967297\";"
                         + " expected a whole number from 0 to 2147483647"));
+        assertThat(DifferentialRunner.outcome(runner, Map.of("id", "retry-fraction", "safeguards", Map.of("retryLimit", 0.0001))))
+                .isEqualTo(Map.of("error", "Scenario retry-fraction: Unsupported safeguards.retryLimit \"0.0001\";"
+                        + " expected a whole number from 0 to 2147483647"));
+        assertThat(DifferentialRunner.outcome(runner, Map.of("id", "idempotency-fraction", "safeguards", Map.of("idempotency", 0.0001))))
+                .isEqualTo(Map.of("error", "Scenario idempotency-fraction: Unsupported safeguards.idempotency \"0.0001\"; expected true or false"));
     }
 }
