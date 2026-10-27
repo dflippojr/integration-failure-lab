@@ -195,6 +195,36 @@ test('an unsupported backoff is rejected when the scenario runs, even when nothi
   refuses({ id: 'x-backoff-list', safeguards: { backoff: ['fixed'] } }, 'Unsupported safeguards.backoff "fixed"; expected one of none, fixed, exponential');
 });
 
+test('a retry limit that is not a whole number from 0 to 2^31 - 1 is rejected when the scenario runs', () => {
+  const expected = 'expected a whole number from 0 to 2147483647';
+  refuses({ id: 'x-retry-text', safeguards: { retryLimit: '3' } }, `Unsupported safeguards.retryLimit "3"; ${expected}`);
+  refuses({ id: 'x-retry-null', safeguards: { retryLimit: null } }, `Unsupported safeguards.retryLimit "null"; ${expected}`);
+  refuses({ id: 'x-retry-negative', safeguards: { retryLimit: -1 } }, `Unsupported safeguards.retryLimit "-1"; ${expected}`);
+  refuses({ id: 'x-retry-fraction', safeguards: { retryLimit: 1.5 } }, `Unsupported safeguards.retryLimit "1.5"; ${expected}`);
+  // String() writes these as the Java runner must too: plain decimal from 1e-7 up to 1e21, E-notation outside.
+  refuses({ id: 'x-retry-tiny', safeguards: { retryLimit: 0.0001 } }, `Unsupported safeguards.retryLimit "0.0001"; ${expected}`);
+  refuses({ id: 'x-retry-tinier', safeguards: { retryLimit: 1e-7 } }, `Unsupported safeguards.retryLimit "1e-7"; ${expected}`);
+  refuses({ id: 'x-retry-vast', safeguards: { retryLimit: 1.5e21 } }, `Unsupported safeguards.retryLimit "1.5e+21"; ${expected}`);
+  // Past Java's int range: the Java runner would wrap 4294967297 to 1 retry, and with a timeout on every attempt the engine
+  // would retry about 4.3 billion times.
+  refuses({ id: 'x-retry-huge', safeguards: { retryLimit: 4294967297 } }, `Unsupported safeguards.retryLimit "4294967297"; ${expected}`);
+  // Free-form overrides are checked too.
+  assert.throws(() => run({ id: 'x-retry-override' }, { retryLimit: '5' }), { message: `Scenario x-retry-override: Unsupported safeguards.retryLimit "5"; ${expected}` });
+  assert.equal(run({ id: 'x-retry-max', safeguards: { retryLimit: 2 ** 31 - 1 } }).verdict.ok, true);
+});
+
+test('an on/off safeguard that is not true or false is rejected when the scenario runs, in DEFAULT_SAFEGUARDS order', () => {
+  for (const name of ['idempotency', 'ordering', 'schemaValidation', 'deadLetter', 'replayAfterFix']) {
+    refuses({ id: `x-${name}-text`, safeguards: { [name]: 'false' } }, `Unsupported safeguards.${name} "false"; expected true or false`);
+  }
+  refuses({ id: 'x-dedupe-number', safeguards: { idempotency: 1 } }, 'Unsupported safeguards.idempotency "1"; expected true or false');
+  refuses({ id: 'x-dedupe-fraction', safeguards: { idempotency: 0.0001 } }, 'Unsupported safeguards.idempotency "0.0001"; expected true or false');
+  refuses({ id: 'x-dlq-null', safeguards: { deadLetter: null } }, 'Unsupported safeguards.deadLetter "null"; expected true or false');
+  // The retry limit comes first, then the on/off safeguards in DEFAULT_SAFEGUARDS order.
+  refuses({ id: 'x-several', safeguards: { replayAfterFix: 0, ordering: 'yes', retryLimit: '1' } }, 'Unsupported safeguards.retryLimit "1"; expected a whole number from 0 to 2147483647');
+  refuses({ id: 'x-several', safeguards: { replayAfterFix: 0, ordering: 'yes' } }, 'Unsupported safeguards.ordering "yes"; expected true or false');
+});
+
 test('overrides replace scenario safeguards (free-form mode)', () => {
   const r = run(byId('2a-duplicate'), { idempotency: true });
   assert.equal(r.verdict.ok, true);

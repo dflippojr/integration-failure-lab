@@ -189,6 +189,8 @@ test('initial static UI graph excludes recordings and stays within the minified 
   // Issue #64 (compare with the previous Free-form run) re-baselined it: 26,372 raw / 10,069 gzip-9 bytes.
   // Issue #126 (refuse scenarios the Java runner can't express) re-baselined it at the owner's decision
   // (option A, 2026-10-22, on the issue): 28,071 raw / 10,748 gzip-9 bytes.
-  assert.ok(bytes.reduce((sum, b) => sum + b.length, 0) < 28500);
-  assert.ok(bytes.reduce((sum, b) => sum + gzipSync(b, { level: 9 }).length, 0) < 10850);
+  // Issue #134 (validate safeguard values on both sides) re-baselined it at the owner's decision (2026-10-26, on the
+  // issue): 28,404 raw / 10,880 gzip-9 bytes.
+  assert.ok(bytes.reduce((sum, b) => sum + b.length, 0) < 28600);
+  assert.ok(bytes.reduce((sum, b) => sum + gzipSync(b, { level: 9 }).length, 0) < 10950);
 });
