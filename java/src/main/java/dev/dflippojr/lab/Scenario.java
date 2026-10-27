@@ -1,5 +1,8 @@
 package dev.dflippojr.lab;
 
+import java.math.BigDecimal;
+import java.math.MathContext;
+import java.math.RoundingMode;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -183,19 +186,59 @@ public record Scenario(String id, int order, String title, Failures failures, Sa
                 && num.doubleValue() <= Integer.MAX_VALUE && num.doubleValue() == Math.rint(num.doubleValue());
     }
 
-    /**
-     * A JSON value as JavaScript's String() shows it, so a refusal reads the same on both sides. Doubles below 1e-6 or
-     * written as 1e15 and above come out in Java's notation ({@code 1.0E-7}), not JavaScript's ({@code 1e-7}); both
-     * sides still refuse such values, and no generated combination reaches them.
-     */
+    /** A JSON value as JavaScript's String() shows it, so a refusal reads the same on both sides. */
     static String shown(Object value) {
         return switch (value) {
             case null -> "null";
-            case Double d when Double.isFinite(d) && d == Math.rint(d) && Math.abs(d) < 1e15 -> Long.toString(d.longValue());
+            // The engine holds every JSON number as a double, so 12345678901234567890 reads 12345678901234567000 there too.
+            case Number n -> numberShown(n.doubleValue());
             case List<?> list -> String.join(",", list.stream().map(e -> e == null ? "" : shown(e)).toList());
             case Map<?, ?> ignored -> "[object Object]";
             default -> value.toString();
         };
+    }
+
+    /**
+     * JavaScript's Number::toString: the fewest significant digits that read back as x (the closest such digits when
+     * there are several, the even ones on a tie), in plain decimal from 1e-7 up to 1e21 and in E-notation with a sign
+     * outside that range. Double.toString differs in notation and, for some doubles, in digits: 4.9E-324 where
+     * JavaScript writes 5e-324.
+     */
+    private static String numberShown(double x) {
+        if (!Double.isFinite(x)) {
+            return Double.toString(x); // NaN, Infinity and -Infinity are spelled the same on both sides
+        }
+        if (x == 0) {
+            return "0"; // -0 too
+        }
+        if (x < 0) {
+            return "-" + numberShown(-x);
+        }
+        BigDecimal exact = new BigDecimal(x);
+        BigDecimal digits = null;
+        for (int k = 1; digits == null; k++) {
+            // The nearest k digits first (the even ones on a tie, as the spec says), then the other neighbour.
+            for (RoundingMode mode : List.of(RoundingMode.HALF_EVEN, RoundingMode.FLOOR, RoundingMode.CEILING)) {
+                BigDecimal candidate = exact.round(new MathContext(k, mode));
+                if (digits == null && candidate.doubleValue() == x) {
+                    digits = candidate.stripTrailingZeros();
+                }
+            }
+        }
+        String s = digits.unscaledValue().toString();
+        int k = s.length();
+        int n = k - digits.scale(); // x is 0.s times 10^n
+        if (k <= n && n <= 21) {
+            return s + "0".repeat(n - k);
+        }
+        if (0 < n && n <= 21) {
+            return s.substring(0, n) + "." + s.substring(n);
+        }
+        if (-6 < n && n <= 0) {
+            return "0." + "0".repeat(-n) + s;
+        }
+        String exponent = (n - 1 < 0 ? "e-" : "e+") + Math.abs(n - 1);
+        return k == 1 ? s + exponent : s.charAt(0) + "." + s.substring(1) + exponent;
     }
 
     @SuppressWarnings("unchecked")
