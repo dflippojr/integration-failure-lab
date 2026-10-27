@@ -92,6 +92,10 @@ test('the engine outcome of each refused scenario is the error the Java runner g
       'Unsupported safeguards.backoff "fixed"; expected one of none, fixed, exponential'],
     'timeout-huge-attempt': [{ timeout: { event: 'ClaimPaid', attempts: [4294967297] } }, {},
       'Unsupported failures.timeout.attempts "4294967297"; expected "all" or a non-empty list of positive integers'],
+    'idempotency-text': [{}, { idempotency: 'false' }, 'Unsupported safeguards.idempotency "false"; expected true or false'],
+    'retry-text': [{}, { retryLimit: '3' }, 'Unsupported safeguards.retryLimit "3"; expected a whole number from 0 to 2147483647'],
+    'retry-null': [{}, { retryLimit: null }, 'Unsupported safeguards.retryLimit "null"; expected a whole number from 0 to 2147483647'],
+    'retry-huge': [{}, { retryLimit: 4294967297 }, 'Unsupported safeguards.retryLimit "4294967297"; expected a whole number from 0 to 2147483647'],
   };
   for (const [id, [failures, safeguards, message]] of Object.entries(refused)) {
     assert.deepEqual(engineOutcome({ id, failures, safeguards }), { error: `Scenario ${id}: ${message}` });

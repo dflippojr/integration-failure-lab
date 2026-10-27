@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -93,5 +94,18 @@ class DifferentialRunnerTest {
                 "failures", Map.of("timeout", Map.of("event", "ClaimPaid", "attempts", List.of(4294967297L))))))
                 .isEqualTo(Map.of("error", "Scenario timeout-huge-attempt: Unsupported failures.timeout.attempts \"4294967297\";"
                         + " expected \"all\" or a non-empty list of positive integers"));
+        assertThat(DifferentialRunner.outcome(runner, Map.of("id", "idempotency-text", "safeguards", Map.of("idempotency", "false"))))
+                .isEqualTo(Map.of("error", "Scenario idempotency-text: Unsupported safeguards.idempotency \"false\"; expected true or false"));
+        assertThat(DifferentialRunner.outcome(runner, Map.of("id", "retry-text", "safeguards", Map.of("retryLimit", "3"))))
+                .isEqualTo(Map.of("error", "Scenario retry-text: Unsupported safeguards.retryLimit \"3\";"
+                        + " expected a whole number from 0 to 2147483647"));
+        Map<String, Object> nullRetryLimit = new HashMap<>(); // Map.of takes no null value
+        nullRetryLimit.put("retryLimit", null);
+        assertThat(DifferentialRunner.outcome(runner, Map.of("id", "retry-null", "safeguards", nullRetryLimit)))
+                .isEqualTo(Map.of("error", "Scenario retry-null: Unsupported safeguards.retryLimit \"null\";"
+                        + " expected a whole number from 0 to 2147483647"));
+        assertThat(DifferentialRunner.outcome(runner, Map.of("id", "retry-huge", "safeguards", Map.of("retryLimit", 4294967297L))))
+                .isEqualTo(Map.of("error", "Scenario retry-huge: Unsupported safeguards.retryLimit \"4294967297\";"
+                        + " expected a whole number from 0 to 2147483647"));
     }
 }

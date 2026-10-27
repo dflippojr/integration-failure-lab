@@ -117,6 +117,55 @@ class ScenarioTest {
                 .hasMessage("Scenario x-backoff-list: Unsupported safeguards.backoff \"fixed\"; expected one of none, fixed, exponential");
     }
 
+    private static final String RETRY_LIMIT = "expected a whole number from 0 to 2147483647";
+    private static final String ON_OFF = "expected true or false";
+
+    private static Arguments refusedSafeguard(String id, String name, Object value, String message) {
+        Map<String, Object> safeguards = new HashMap<>(); // Map.of takes no null value
+        safeguards.put(name, value);
+        return Arguments.of(id, Map.of("id", id, "safeguards", safeguards), "Scenario " + id + ": " + message);
+    }
+
+    // The same cases and messages as the safeguard refusal tests in test/engine.test.js.
+    static Stream<Arguments> unsupportedSafeguards() {
+        return Stream.of(
+                refusedSafeguard("x-retry-text", "retryLimit", "3", "Unsupported safeguards.retryLimit \"3\"; " + RETRY_LIMIT),
+                refusedSafeguard("x-retry-null", "retryLimit", null, "Unsupported safeguards.retryLimit \"null\"; " + RETRY_LIMIT),
+                refusedSafeguard("x-retry-negative", "retryLimit", -1, "Unsupported safeguards.retryLimit \"-1\"; " + RETRY_LIMIT),
+                refusedSafeguard("x-retry-fraction", "retryLimit", 1.5, "Unsupported safeguards.retryLimit \"1.5\"; " + RETRY_LIMIT),
+                // Past the int range: intValue() would wrap 4294967297 to 1 retry.
+                refusedSafeguard("x-retry-huge", "retryLimit", 4294967297L, "Unsupported safeguards.retryLimit \"4294967297\"; " + RETRY_LIMIT),
+                refusedSafeguard("x-idempotency-text", "idempotency", "false", "Unsupported safeguards.idempotency \"false\"; " + ON_OFF),
+                refusedSafeguard("x-ordering-text", "ordering", "false", "Unsupported safeguards.ordering \"false\"; " + ON_OFF),
+                refusedSafeguard("x-schemaValidation-text", "schemaValidation", "false", "Unsupported safeguards.schemaValidation \"false\"; " + ON_OFF),
+                refusedSafeguard("x-deadLetter-text", "deadLetter", "false", "Unsupported safeguards.deadLetter \"false\"; " + ON_OFF),
+                refusedSafeguard("x-replayAfterFix-text", "replayAfterFix", "false", "Unsupported safeguards.replayAfterFix \"false\"; " + ON_OFF),
+                refusedSafeguard("x-dedupe-number", "idempotency", 1, "Unsupported safeguards.idempotency \"1\"; " + ON_OFF),
+                refusedSafeguard("x-dlq-null", "deadLetter", null, "Unsupported safeguards.deadLetter \"null\"; " + ON_OFF));
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("unsupportedSafeguards")
+    void aRetryLimitOrOnOffSafeguardOfTheWrongTypeOrRangeIsRejectedAtLoad(String ignoredId, Map<String, Object> json, String message) {
+        assertThatThrownBy(() -> Scenario.fromMap(json)).isInstanceOf(IllegalArgumentException.class).hasMessage(message);
+    }
+
+    @Test
+    void theRetryLimitIsCheckedFirstThenTheOnOffSafeguardsInTheEnginesOrder() {
+        assertThatThrownBy(() -> Scenario.fromMap(Map.of("id", "x-several",
+                "safeguards", Map.of("replayAfterFix", 0, "ordering", "yes", "retryLimit", "1"))))
+                .hasMessage("Scenario x-several: Unsupported safeguards.retryLimit \"1\"; " + RETRY_LIMIT);
+        assertThatThrownBy(() -> Scenario.fromMap(Map.of("id", "x-several", "safeguards", Map.of("replayAfterFix", 0, "ordering", "yes"))))
+                .hasMessage("Scenario x-several: Unsupported safeguards.ordering \"yes\"; " + ON_OFF);
+    }
+
+    @Test
+    void wholeNumberRetryLimitsUpToTheIntMaximumStillLoad() {
+        assertThat(Scenario.fromMap(Map.of("id", "ok", "safeguards", Map.of("retryLimit", 2.0))).safeguards().retryLimit()).isEqualTo(2);
+        assertThat(Scenario.fromMap(Map.of("id", "ok", "safeguards", Map.of("retryLimit", Integer.MAX_VALUE, "deadLetter", false)))
+                .safeguards()).isEqualTo(new Scenario.Safeguards(Integer.MAX_VALUE, "exponential", false, false, false, false, false));
+    }
+
     @Test
     void theShippedReorderDelayAndWholeNumberAttemptsStillLoad() {
         Scenario scenario = Scenario.fromMap(Map.of("id", "ok", "failures", Map.of(
