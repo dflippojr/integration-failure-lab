@@ -69,6 +69,13 @@ function refusal(failures, guards) {
     return `failures.poison and failures.schemaChange cannot target the same event (${failures.poison.event})`;
   }
   if (!BACKOFFS.includes(guards.backoff)) return unsupported('safeguards.backoff', guards.backoff, `one of ${BACKOFFS.join(', ')}`);
+  // Java holds the retry limit as an int: 4294967297 would wrap to 1 there, and retry for ever here.
+  if (guards.retryLimit !== 0 && !attemptNumber(guards.retryLimit)) {
+    return unsupported('safeguards.retryLimit', guards.retryLimit, 'a whole number from 0 to 2147483647');
+  }
+  for (const [name, initial] of Object.entries(DEFAULT_SAFEGUARDS)) {
+    if (typeof initial === 'boolean' && typeof guards[name] !== 'boolean') return unsupported(`safeguards.${name}`, guards[name], 'true or false');
+  }
   return null;
 }
 

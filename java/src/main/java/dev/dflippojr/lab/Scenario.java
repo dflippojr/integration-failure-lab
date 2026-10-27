@@ -1,5 +1,6 @@
 package dev.dflippojr.lab;
 
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -20,6 +21,9 @@ public record Scenario(String id, int order, String title, Failures failures, Sa
     // The engine's TIMING.reorderDelayMs, in its virtual ms. This runner delays by lab.reorder-delay-ms, whatever the
     // scenario says, so it refuses any other value rather than run a different delay from the engine's.
     static final int REORDER_DELAY_MS = 500;
+    // The on/off safeguards and their defaults, in engine.js DEFAULT_SAFEGUARDS order, which is the order they are checked in.
+    static final List<Map.Entry<String, Boolean>> TOGGLES = List.of(Map.entry("idempotency", false), Map.entry("ordering", false),
+            Map.entry("schemaValidation", false), Map.entry("deadLetter", true), Map.entry("replayAfterFix", false));
 
     public record Failures(String timeoutEvent, Set<Integer> timeoutAttempts, boolean timeoutAll,
                            String duplicateEvent, String reorderEvent, String schemaChangeEvent,
@@ -117,14 +121,23 @@ public record Scenario(String id, int order, String title, Failures failures, Sa
             throw new IllegalArgumentException("Scenario " + json.get("id") + ": "
                     + unsupported("safeguards.backoff", backoff, "one of " + String.join(", ", Safeguards.BACKOFFS)));
         }
-        Safeguards safeguards = new Safeguards(
-                ((Number) g.getOrDefault("retryLimit", 3)).intValue(),
-                name,
-                (Boolean) g.getOrDefault("idempotency", false),
-                (Boolean) g.getOrDefault("ordering", false),
-                (Boolean) g.getOrDefault("schemaValidation", false),
-                (Boolean) g.getOrDefault("deadLetter", true),
-                (Boolean) g.getOrDefault("replayAfterFix", false));
+        // Then the retry limit and the on/off safeguards, as engine.js refusal() does. intValue() would wrap 4294967297 to 1.
+        Object retryLimit = g.getOrDefault("retryLimit", 3);
+        if (!(retryLimit instanceof Number n && (n.doubleValue() == 0 || positiveInteger(n)))) {
+            throw new IllegalArgumentException("Scenario " + json.get("id") + ": "
+                    + unsupported("safeguards.retryLimit", retryLimit, "a whole number from 0 to " + Integer.MAX_VALUE));
+        }
+        Map<String, Boolean> on = new HashMap<>();
+        for (Map.Entry<String, Boolean> toggle : TOGGLES) {
+            Object value = g.getOrDefault(toggle.getKey(), toggle.getValue());
+            if (!(value instanceof Boolean b)) {
+                throw new IllegalArgumentException("Scenario " + json.get("id") + ": "
+                        + unsupported("safeguards." + toggle.getKey(), value, "true or false"));
+            }
+            on.put(toggle.getKey(), b);
+        }
+        Safeguards safeguards = new Safeguards(n.intValue(), name, on.get("idempotency"), on.get("ordering"),
+                on.get("schemaValidation"), on.get("deadLetter"), on.get("replayAfterFix"));
 
         return new Scenario((String) json.get("id"), ((Number) json.getOrDefault("order", 0)).intValue(),
                 (String) json.get("title"), failures, safeguards,
@@ -133,7 +146,7 @@ public record Scenario(String id, int order, String title, Failures failures, Sa
 
     /**
      * Why the engine would refuse these failures (engine.js refusal() checks the same rules in the same order, with the
-     * same text), or null. The same-event and safeguards.backoff rules come last, in {@link #fromMap}.
+     * same text), or null. The same-event and safeguards rules come last, in {@link #fromMap}.
      */
     private static String refusal(Map<String, Object> f) {
         for (String kind : FAILURE_KINDS) {
