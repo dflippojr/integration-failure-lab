@@ -214,12 +214,14 @@ public record Scenario(String id, int order, String title, Failures failures, Sa
         if (x < 0) {
             return "-" + numberShown(-x);
         }
-        BigDecimal exact = new BigDecimal(x);
+        // Double.toString's digits: the shortest that read back as x, but never fewer than two (4.9E-324). Rounding them
+        // finds the same k digits as rounding x itself, since no shorter decimal lies between the two.
+        BigDecimal shortest = BigDecimal.valueOf(x);
         BigDecimal digits = null;
         for (int k = 1; digits == null; k++) {
             // The nearest k digits first (the even ones on a tie, as the spec says), then the other neighbour.
             for (RoundingMode mode : List.of(RoundingMode.HALF_EVEN, RoundingMode.FLOOR, RoundingMode.CEILING)) {
-                BigDecimal candidate = exact.round(new MathContext(k, mode));
+                BigDecimal candidate = shortest.round(new MathContext(k, mode));
                 if (digits == null && candidate.doubleValue() == x) {
                     digits = candidate.stripTrailingZeros();
                 }
