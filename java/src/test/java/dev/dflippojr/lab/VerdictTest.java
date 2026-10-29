@@ -39,7 +39,9 @@ class VerdictTest {
 
     @Test
     void anUnknownEventIdThrows() {
-        assertThatThrownBy(() -> Verdict.judge("Paid", 12_000, List.of("E9", "E9"), List.of(), List.of()))
+        assertThatThrownBy(() -> Verdict.judge("Paid", 12_000, List.of("E9"), List.of(), List.of()))
+                .isInstanceOf(IllegalArgumentException.class).hasMessage("Unknown event E9");
+        assertThatThrownBy(() -> Verdict.judge("Paid", 12_000, List.of("E1", "E2", "E3", "E9"), List.of(), List.of()))
                 .isInstanceOf(IllegalArgumentException.class).hasMessage("Unknown event E9");
     }
 }
