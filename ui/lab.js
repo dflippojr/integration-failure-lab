@@ -50,7 +50,7 @@ const SIM_NOTE = `Simulated in your browser with synthetic data on a virtual clo
 function executedResult(id, executed) {
   const x = executed[id];
   if (!x) return null;
-  const verdict = judge(x.record, { dlq: x.dlq, dropped: x.dropped, buffered: x.buffered });
+  const verdict = judge(x.record, { dlq: x.dlq, buffered: x.buffered });
   const note = `Recorded from a real run: Spring Boot ${x.runtime.springBoot} on Java ${x.runtime.java.split('+')[0]}, ${x.runtime.transport}. `
     + `Shorter wall-clock timings (${x.timing.timeoutMs} ms ack timeout, ${x.timing.backoffBaseMs} ms backoff base), replayed here. Synthetic data.`;
   return { ...x, expected: EXPECTED_RECORD, verdict, note };
