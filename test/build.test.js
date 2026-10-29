@@ -20,6 +20,23 @@ test('build refuses a target that is not one of its fixed names', () => {
   assert.equal(existsSync(target), false);
 });
 
+test('build refuses a scenario whose lesson is missing or blank, since Guided mode shows the lesson after every run', () => {
+  const file = join(lab, 'scenarios', 'zz-no-lesson.json');
+  const scenario = { id: 'zz-no-lesson', title: 'No lesson', summary: 'Fixture.', order: 99, failures: {}, safeguards: {} };
+  try {
+    for (const lesson of [undefined, '', '   ']) {
+      writeFileSync(file, JSON.stringify({ ...scenario, lesson }));
+      const run = node('build.mjs', 'dist');
+      assert.equal(run.status, 1, `lesson ${JSON.stringify(lesson)} must be refused`);
+      assert.match(run.stderr, /zz-no-lesson/);
+      assert.equal(existsSync(join(lab, 'dist', 'scenarios.js')), false);
+    }
+  } finally {
+    rmSync(file, { force: true });
+    rmSync(join(lab, 'dist'), { recursive: true, force: true });
+  }
+});
+
 // A private lab checkout in its own git repository, with the website checkout beside it: <tmp>/lab, <tmp>/personal-website.
 let tmp, lab, site;
 const git = (...args) => {
