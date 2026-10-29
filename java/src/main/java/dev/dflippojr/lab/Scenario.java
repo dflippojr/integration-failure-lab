@@ -88,7 +88,7 @@ public record Scenario(String id, int order, String title, Failures failures, Sa
     public static Scenario fromFile(Map<String, Object> json) {
         Object id = json.get("id");
         if (!(id instanceof String s && ID_SHAPE.matcher(s).matches())) {
-            throw new IllegalArgumentException("Scenario " + id + ": id must be lowercase letters, digits and single hyphens");
+            throw refused(id, "id must be lowercase letters, digits and single hyphens");
         }
         return fromMap(json);
     }
@@ -98,7 +98,7 @@ public record Scenario(String id, int order, String title, Failures failures, Sa
         Map<String, Object> f = (Map<String, Object>) json.getOrDefault("failures", Map.of());
         Map<String, Object> g = (Map<String, Object>) json.getOrDefault("safeguards", Map.of());
         String refused = refusal(f, g);
-        if (refused != null) throw new IllegalArgumentException("Scenario " + json.get("id") + ": " + refused);
+        if (refused != null) throw refused(json.get("id"), refused);
 
         Map<String, Object> timeout = (Map<String, Object>) f.get("timeout");
         Object attempts = timeout == null ? null : timeout.get("attempts");
@@ -171,6 +171,10 @@ public record Scenario(String id, int order, String title, Failures failures, Sa
             }
         }
         return null;
+    }
+
+    private static IllegalArgumentException refused(Object id, String reason) {
+        return new IllegalArgumentException("Scenario " + id + ": " + reason);
     }
 
     private static String unsupported(String path, Object value, String expected) {
