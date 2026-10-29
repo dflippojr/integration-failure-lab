@@ -459,6 +459,13 @@ test('scenarios with poison, replay after fix or another delay are not expressib
   assert.equal(toFormValues({ failures: {}, safeguards: { retryLimit: 6 } }), null);
 });
 
+test('the Free-form backoff select lists exponential, fixed, none', () => {
+  const form = byClass(mount(undefined, 'free'), 'ifl-form');
+  const backoff = form.find(e => e.tagName === 'SELECT' && e.getAttribute('name') === 'backoff')[0];
+  assert.deepEqual(backoff.children.map(o => o.getAttribute('value')), ['exponential', 'fixed', 'none']);
+  assert.deepEqual(backoff.children.map(o => o.text()), ['exponential', 'fixed', 'none']);
+});
+
 // The differential test (scripts/differential.mjs) must reach every value of every Free-form control.
 test('the differential generator covers every Free-form control value', () => {
   const form = byClass(mount(undefined, 'free'), 'ifl-form');
