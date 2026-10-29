@@ -322,7 +322,7 @@ public class ScenarioRunner {
         /** The logical time of the step running now; only the thread running it uses this. */
         private long now;
         /** Events not yet applied, dead-lettered without a pending replay, or dropped. */
-        private int unsettled = 3;
+        private int unsettled = ClaimEvent.sequence().size();
         /** The first failure of the run; later ones are attached to it as suppressed. */
         private Exception primary;
 

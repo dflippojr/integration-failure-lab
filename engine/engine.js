@@ -263,7 +263,11 @@ export function run(scenario, overrides = {}) {
 }
 
 export const dollars = cents => `$${(cents / 100).toFixed(2)}`;
-const typeOf = id => claimEvents().find(e => e.eventId === id).type;
+const TYPE_BY_ID = new Map(claimEvents().map(e => [e.eventId, e.type]));
+const typeOf = id => {
+  if (!TYPE_BY_ID.has(id)) throw new Error(`Unknown event ${id}`);
+  return TYPE_BY_ID.get(id);
+};
 
 export function judge(record, { dlq = [], buffered = [] } = {}) {
   const problems = [];
