@@ -35,7 +35,7 @@ before(() => {
   // Build in a private copy of the sources so this never races the UI tests' dist-test/ output.
   tmp = mkdtempSync(join(tmpdir(), 'ifl-dist-'));
   mkdirSync(join(tmp, 'scripts'));
-  for (const f of ['build.mjs', 'git.mjs']) cpSync(join(root, 'scripts', f), join(tmp, 'scripts', f));
+  for (const f of ['build.mjs', 'git.mjs', 'scenarios.mjs']) cpSync(join(root, 'scripts', f), join(tmp, 'scripts', f));
   for (const d of ['engine', 'ui', 'scenarios', 'executed']) cpSync(join(root, d), join(tmp, d), { recursive: true });
   linkModules(tmp);
   const run = spawnSync(process.execPath, [join(tmp, 'scripts', 'build.mjs'), 'dist'], { encoding: 'utf8' });

@@ -7,6 +7,7 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symli
 import { tmpdir } from 'node:os';
 import { join, parse } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { browserScenarios } from '../scripts/scenarios.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const build = join(root, 'scripts', 'build.mjs');
@@ -37,6 +38,14 @@ test('build refuses a scenario whose lesson is missing or blank, since Guided mo
   }
 });
 
+test('browserScenarios keeps only the browser fields, and refuses a scenario whose lesson is missing or blank', () => {
+  const scenario = { id: 'zz', title: 'T', summary: 'S', order: 1, failures: {}, safeguards: {}, expect: {}, lesson: 'A lesson.' };
+  assert.deepEqual(browserScenarios([scenario]), [{ id: 'zz', title: 'T', summary: 'S', failures: {}, safeguards: {}, lesson: 'A lesson.' }]);
+  for (const lesson of [undefined, '', '   ']) {
+    assert.throws(() => browserScenarios([{ ...scenario, lesson }]), /Scenarios without a non-empty lesson: zz\./);
+  }
+});
+
 // A private lab checkout in its own git repository, with the website checkout beside it: <tmp>/lab, <tmp>/personal-website.
 let tmp, lab, site;
 const git = (...args) => {
@@ -58,7 +67,7 @@ before(() => {
   lab = join(tmp, 'lab');
   site = join(tmp, 'personal-website', 'public', 'lab');
   mkdirSync(join(lab, 'scripts'), { recursive: true });
-  for (const f of ['build.mjs', 'git.mjs']) cpSync(join(root, 'scripts', f), join(lab, 'scripts', f));
+  for (const f of ['build.mjs', 'git.mjs', 'scenarios.mjs']) cpSync(join(root, 'scripts', f), join(lab, 'scripts', f));
   for (const d of ['engine', 'ui', 'scenarios', 'executed']) cpSync(join(root, d), join(lab, d), { recursive: true });
   cpSync(join(root, 'package.json'), join(lab, 'package.json'));
   writeFileSync(join(lab, '.gitignore'), 'node_modules\n');
