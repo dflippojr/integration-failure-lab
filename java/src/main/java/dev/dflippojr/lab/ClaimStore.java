@@ -100,8 +100,15 @@ public class ClaimStore {
     }
 
     public synchronized List<Map<String, Object>> buffered() {
-        return buffer.values().stream()
-                .map(e -> Map.<String, Object>of("eventId", e.eventId(), "eventType", e.type(), "seq", e.seq()))
-                .toList();
+        return buffer.values().stream().map(ClaimStore::bufferedEntry).toList();
+    }
+
+    /** LinkedHashMap rather than Map.of, so the recorded keys keep the engine's order on every JVM. */
+    private static Map<String, Object> bufferedEntry(ClaimEvent event) {
+        Map<String, Object> entry = new LinkedHashMap<>();
+        entry.put("eventId", event.eventId());
+        entry.put("eventType", event.type());
+        entry.put("seq", event.seq());
+        return entry;
     }
 }
