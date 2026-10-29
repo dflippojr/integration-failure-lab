@@ -96,8 +96,7 @@ public record Scenario(String id, int order, String title, Failures failures, Sa
     @SuppressWarnings("unchecked")
     public static Scenario fromMap(Map<String, Object> json) {
         Map<String, Object> f = (Map<String, Object>) json.getOrDefault("failures", Map.of());
-        Map<String, Object> g = (Map<String, Object>) json.getOrDefault("safeguards", Map.of());
-        String refused = refusal(f, g);
+        String refused = refusal(f, json.getOrDefault("safeguards", Map.of()));
         if (refused != null) throw refused(json.get("id"), refused);
 
         Map<String, Object> timeout = (Map<String, Object>) f.get("timeout");
@@ -114,6 +113,7 @@ public record Scenario(String id, int order, String title, Failures failures, Sa
                 eventOf(f.get("schemaChange")),
                 eventOf(f.get("poison")));
 
+        Map<String, Object> g = (Map<String, Object>) json.getOrDefault("safeguards", Map.of());
         Map<String, Boolean> on = new HashMap<>();
         for (Map.Entry<String, Boolean> toggle : TOGGLES) {
             on.put(toggle.getKey(), (Boolean) g.getOrDefault(toggle.getKey(), toggle.getValue()));
@@ -132,7 +132,8 @@ public record Scenario(String id, int order, String title, Failures failures, Sa
      * with the same text. Every rule checks the raw JSON value, as the engine does, so {@link #fromMap} only parses
      * values already known to be valid.
      */
-    private static String refusal(Map<String, Object> f, Map<String, Object> g) {
+    @SuppressWarnings("unchecked")
+    private static String refusal(Map<String, Object> f, Object safeguards) {
         for (String kind : FAILURE_KINDS) {
             Object failure = f.get(kind);
             if (failure != null && !(field(failure, "event") instanceof String event && EVENT_TYPES.contains(event))) {
@@ -154,6 +155,8 @@ public record Scenario(String id, int order, String title, Failures failures, Sa
         if (poisonEvent != null && poisonEvent.equals(field(f.get("schemaChange"), "event"))) {
             return "failures.poison and failures.schemaChange cannot target the same event (" + poisonEvent + ")";
         }
+        // Cast only now, so a failure refusal still wins over safeguards that are not an object, as before.
+        Map<String, Object> g = (Map<String, Object>) safeguards;
         // shown() would turn ["fixed"] into "fixed", so this checks the raw value.
         Object backoff = g.getOrDefault("backoff", "exponential");
         if (!(backoff instanceof String name && Safeguards.BACKOFFS.contains(name))) {
