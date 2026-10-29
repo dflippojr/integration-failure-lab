@@ -663,7 +663,12 @@ public class ScenarioRunner {
         }
 
         private void giveUp(ClaimEvent event, int attempt, String reason) {
-            Map<String, Object> entry = Map.of("eventId", event.eventId(), "eventType", event.type(), "reason", reason, "attempts", attempt);
+            // LinkedHashMap rather than Map.of, so the recorded keys keep the engine's order on every JVM
+            Map<String, Object> entry = new LinkedHashMap<>();
+            entry.put("eventId", event.eventId());
+            entry.put("eventType", event.type());
+            entry.put("reason", reason);
+            entry.put("attempts", attempt);
             if (scenario.safeguards().deadLetter()) {
                 dlq.add(entry);
                 trace.log("queue", "dead-letter", event, "attempt", attempt, "note", reason);
