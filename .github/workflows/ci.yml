@@ -34,8 +34,9 @@ jobs:
           cache: maven
       # verify also runs the JaCoCo line-coverage floor in java/pom.xml.
       - run: ./mvnw -B verify
-  # Every Free-form combination through the browser engine and the Java runner over real HTTP;
-  # any outcome they disagree on that test/differential/known.json does not explain fails the job.
+  # The generated combinations (test/differential/combos.mjs; a subset of Free-form) through the browser engine
+  # and the Java runner over real HTTP; any outcome they disagree on that test/differential/known.json does not
+  # explain fails the job.
   differential:
     runs-on: ubuntu-latest
     timeout-minutes: 10
