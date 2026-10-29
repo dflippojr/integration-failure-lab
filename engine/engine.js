@@ -24,7 +24,7 @@ export const EVENT_TYPES = Object.freeze(['ClaimSubmitted', 'ClaimAccepted', 'Cl
 const FAILURE_KINDS = ['timeout', 'duplicate', 'reorder', 'schemaChange', 'poison'];
 export const BACKOFFS = Object.freeze(['none', 'fixed', 'exponential']); // Scenario.BACKOFFS order: the refusal text lists them
 
-const CLAIM_ID = 'C-1001';
+export const CLAIM_ID = 'C-1001';
 const AMOUNT_CENTS = 12000;
 
 export function claimEvents() {
