@@ -95,8 +95,9 @@ public record Scenario(String id, int order, String title, Failures failures, Sa
 
     @SuppressWarnings("unchecked")
     public static Scenario fromMap(Map<String, Object> json) {
-        Map<String, Object> f = (Map<String, Object>) json.getOrDefault("failures", Map.of());
-        String refused = refusal(f, json.getOrDefault("safeguards", Map.of()));
+        Map<String, Object> f = (Map<String, Object>) section(json, "failures");
+        Object rawSafeguards = section(json, "safeguards");
+        String refused = refusal(f, rawSafeguards);
         if (refused != null) throw refused(json.get("id"), refused);
 
         Map<String, Object> timeout = (Map<String, Object>) f.get("timeout");
@@ -113,7 +114,7 @@ public record Scenario(String id, int order, String title, Failures failures, Sa
                 eventOf(f.get("schemaChange")),
                 eventOf(f.get("poison")));
 
-        Map<String, Object> g = (Map<String, Object>) json.getOrDefault("safeguards", Map.of());
+        Map<String, Object> g = (Map<String, Object>) rawSafeguards;
         Map<String, Boolean> on = new HashMap<>();
         for (Map.Entry<String, Boolean> toggle : TOGGLES) {
             on.put(toggle.getKey(), (Boolean) g.getOrDefault(toggle.getKey(), toggle.getValue()));
@@ -174,6 +175,12 @@ public record Scenario(String id, int order, String title, Failures failures, Sa
             }
         }
         return null;
+    }
+
+    /** A failures or safeguards section, with null read as absent: engine.js run() reads {@code failures ?? {}}. */
+    private static Object section(Map<String, Object> json, String name) {
+        Object value = json.get(name);
+        return value == null ? Map.of() : value;
     }
 
     private static IllegalArgumentException refused(Object id, String reason) {

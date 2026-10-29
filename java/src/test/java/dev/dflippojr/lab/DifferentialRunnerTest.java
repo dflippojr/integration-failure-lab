@@ -122,7 +122,7 @@ class DifferentialRunnerTest {
         combination.put("failures", null);
         combination.put("safeguards", null);
         assertThat(DifferentialRunner.outcome(runner, combination)).isEqualTo(Map.of(
-                "record", Map.of("status", "Paid", "paidCents", 12000, "applied", List.of("E1", "E2", "E3")),
+                "record", Map.of("status", "Paid", "paidCents", 12000L, "applied", List.of("E1", "E2", "E3")),
                 "dlq", List.of(), "dropped", List.of(), "buffered", List.of(),
                 "verdict", Map.of("ok", true, "visible", false, "problems", List.of())));
     }
