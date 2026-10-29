@@ -14,7 +14,7 @@ import java.util.stream.Collectors;
  */
 public record Verdict(boolean ok, boolean visible, List<String> problems) {
 
-    static final List<String> EXPECTED_APPLIED = List.of("E1", "E2", "E3");
+    static final List<String> EXPECTED_APPLIED = ClaimEvent.sequence().stream().map(ClaimEvent::eventId).toList();
     static final String EXPECTED_STATUS = "Paid";
 
     public static Verdict judge(String status, long paidCents, List<String> applied, List<String> dlq, List<String> buffered) {

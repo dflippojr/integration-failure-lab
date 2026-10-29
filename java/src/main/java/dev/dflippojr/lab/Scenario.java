@@ -19,7 +19,7 @@ public record Scenario(String id, int order, String title, Failures failures, Sa
     // The id names the exported trace file, so it must not carry path separators or "..".
     static final Pattern ID_SHAPE = Pattern.compile("[a-z0-9]++(?:-[a-z0-9]++)*+");
 
-    static final List<String> EVENT_TYPES = List.of("ClaimSubmitted", "ClaimAccepted", "ClaimPaid");
+    static final List<String> EVENT_TYPES = ClaimEvent.sequence().stream().map(ClaimEvent::type).toList();
     static final List<String> FAILURE_KINDS = List.of("timeout", "duplicate", "reorder", "schemaChange", "poison");
     // The engine's TIMING.reorderDelayMs, in its virtual ms. This runner delays by lab.reorder-delay-ms, whatever the
     // scenario says, so it refuses any other value rather than run a different delay from the engine's.
