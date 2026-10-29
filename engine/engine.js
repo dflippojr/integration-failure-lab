@@ -271,6 +271,7 @@ const typeOf = id => {
 
 export function judge(record, { dlq = [], buffered = [] } = {}) {
   const problems = [];
+  record.applied.forEach(typeOf); // an unknown id throws, even one applied once
   const counts = record.applied.reduce((m, id) => m.set(id, (m.get(id) ?? 0) + 1), new Map());
 
   for (const [id, n] of counts) if (n > 1) problems.push(`${typeOf(id)} applied ${n} times`);

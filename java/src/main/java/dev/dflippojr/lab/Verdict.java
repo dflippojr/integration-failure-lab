@@ -22,6 +22,7 @@ public record Verdict(boolean ok, boolean visible, List<String> problems) {
     public static Verdict judge(String status, long paidCents, List<String> applied, List<String> dlq, List<String> buffered) {
         List<String> problems = new ArrayList<>();
         Map<String, Integer> counts = new LinkedHashMap<>();
+        applied.forEach(Verdict::typeOf); // an unknown id throws, even one applied once
         applied.forEach(id -> counts.merge(id, 1, Integer::sum));
 
         counts.forEach((id, n) -> {
