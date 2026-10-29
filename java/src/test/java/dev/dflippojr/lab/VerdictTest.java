@@ -1,6 +1,7 @@
 package dev.dflippojr.lab;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.List;
 
@@ -34,5 +35,11 @@ class VerdictTest {
                 "ClaimSubmitted never applied", "ClaimAccepted never applied", "ClaimPaid never applied",
                 "final status is empty, not Paid", "paid $0.00 instead of $120.00",
                 "ClaimAccepted stuck in the ordering buffer", "ClaimPaid stuck in the ordering buffer");
+    }
+
+    @Test
+    void anUnknownEventIdThrows() {
+        assertThatThrownBy(() -> Verdict.judge("Paid", 12_000, List.of("E9", "E9"), List.of(), List.of()))
+                .isInstanceOf(IllegalArgumentException.class).hasMessage("Unknown event E9");
     }
 }
