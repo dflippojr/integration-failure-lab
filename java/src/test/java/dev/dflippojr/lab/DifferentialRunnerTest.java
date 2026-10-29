@@ -113,4 +113,17 @@ class DifferentialRunnerTest {
         assertThat(DifferentialRunner.outcome(runner, Map.of("id", "idempotency-fraction", "safeguards", Map.of("idempotency", 0.0001))))
                 .isEqualTo(Map.of("error", "Scenario idempotency-fraction: Unsupported safeguards.idempotency \"0.0001\"; expected true or false"));
     }
+
+    @Test
+    void nullFailuresAndSafeguardsRunWithTheDefaultsAsInTheEngine() throws Exception {
+        // The same scenario and outcome as the engineOutcome null-sections test in test/differential.test.js.
+        Map<String, Object> combination = new HashMap<>(); // Map.of takes no null value
+        combination.put("id", "null-sections");
+        combination.put("failures", null);
+        combination.put("safeguards", null);
+        assertThat(DifferentialRunner.outcome(runner, combination)).isEqualTo(Map.of(
+                "record", Map.of("status", "Paid", "paidCents", 12000, "applied", List.of("E1", "E2", "E3")),
+                "dlq", List.of(), "dropped", List.of(), "buffered", List.of(),
+                "verdict", Map.of("ok", true, "visible", false, "problems", List.of())));
+    }
 }
