@@ -83,6 +83,32 @@ class ScenarioRunnerTest {
                 "schemaValidation", "deadLetter", "replayAfterFix");
     }
 
+    /** The dlq, dropped and buffered entries keep the engine's key order (engine/engine.js) across JVMs too. */
+    @Test
+    void recordedEntriesKeepAFixedKeyOrder() throws Exception {
+        Map<String, Object> dlq = runner.run(scenario("1b-outage-with-dlq"));
+        assertThat(firstEntryKeys(dlq.get("dlq"))).containsExactly("eventId", "eventType", "reason", "attempts");
+        Map<String, Object> dropped = runner.run(scenario("1c-fire-and-forget"));
+        assertThat(firstEntryKeys(dropped.get("dropped"))).containsExactly("eventId", "eventType", "reason", "attempts");
+        Scenario stalled = Scenario.fromMap(Map.of(
+                "id", "x2-buffered",
+                "failures", Map.of("timeout", Map.of("event", "ClaimAccepted", "attempts", "all")),
+                "safeguards", Map.of("ordering", true)));
+        Map<String, Object> buffered = runner.run(stalled);
+        assertThat(firstEntryKeys(buffered.get("buffered"))).containsExactly("eventId", "eventType", "seq");
+    }
+
+    private Scenario scenario(String id) throws Exception {
+        return files.load().stream().filter(s -> s.id().equals(id)).findFirst().orElseThrow();
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<String> firstEntryKeys(Object entries) {
+        List<Map<String, Object>> list = (List<Map<String, Object>>) entries;
+        assertThat(list).isNotEmpty();
+        return keys(list.getFirst());
+    }
+
     @SuppressWarnings("unchecked")
     private static List<String> keys(Object map) {
         return List.copyOf(((Map<String, Object>) map).keySet());
