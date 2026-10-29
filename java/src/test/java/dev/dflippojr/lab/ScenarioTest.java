@@ -215,6 +215,15 @@ class ScenarioTest {
     }
 
     @Test
+    void aFailureRefusalStillWinsWhenTheSafeguardsAreNotAnObject() {
+        // The engine spreads [] into no safeguards and refuses the event, so the failure rules run before the safeguards cast.
+        assertThatThrownBy(() -> Scenario.fromMap(Map.of("id", "x-event-and-list-safeguards",
+                "failures", Map.of("poison", Map.of("event", "ClaimPayed")), "safeguards", List.of())))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Scenario x-event-and-list-safeguards: Unsupported failures.poison.event \"ClaimPayed\"; " + EVENTS);
+    }
+
+    @Test
     void wholeNumberRetryLimitsUpToTheIntMaximumStillLoad() {
         assertThat(Scenario.fromMap(Map.of("id", "ok", "safeguards", Map.of("retryLimit", 2.0))).safeguards().retryLimit()).isEqualTo(2);
         assertThat(Scenario.fromMap(Map.of("id", "ok", "safeguards", Map.of("retryLimit", Integer.MAX_VALUE, "deadLetter", false)))

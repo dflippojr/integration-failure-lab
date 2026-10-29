@@ -238,6 +238,9 @@ test('a scenario that breaks two rules from different groups is refused for the 
     'Unsupported safeguards.backoff "bogus"; expected one of none, fixed, exponential');
   refuses({ id: 'x-retry-and-toggle', safeguards: { retryLimit: -1, idempotency: 'yes' } },
     'Unsupported safeguards.retryLimit "-1"; expected a whole number from 0 to 2147483647');
+  // Spreading [] adds no safeguards, so the event rule still decides (aFailureRefusalStillWinsWhenTheSafeguardsAreNotAnObject).
+  refuses({ id: 'x-event-and-list-safeguards', failures: { poison: { event: 'ClaimPayed' } }, safeguards: [] },
+    'Unsupported failures.poison.event "ClaimPayed"; expected one of ClaimSubmitted, ClaimAccepted, ClaimPaid');
 });
 
 test('overrides replace scenario safeguards (free-form mode)', () => {
