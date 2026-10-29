@@ -82,7 +82,7 @@ test('site build refuses a dirty checkout and writes nothing', () => {
 
 test('dist and test builds mark a dirty checkout instead of refusing it', () => {
   const head = git('rev-parse', 'HEAD');
-  writeFileSync(join(lab, 'scenarios', 'zz-untracked.json'), '{}');
+  writeFileSync(join(lab, 'scenarios', 'zz-untracked.json'), '{"lesson":"Untracked fixture."}');
   try {
     for (const [target, dir] of [['dist', 'dist'], ['test', 'dist-test']]) {
       const run = node('build.mjs', target);
@@ -98,7 +98,7 @@ test('dist and test builds mark a dirty checkout instead of refusing it', () => 
 test('an untracked file is dirty even when status.showUntrackedFiles=no hides it', () => {
   const head = git('rev-parse', 'HEAD');
   git('config', 'status.showUntrackedFiles', 'no');
-  writeFileSync(join(lab, 'scenarios', 'zz-untracked.json'), '{}');
+  writeFileSync(join(lab, 'scenarios', 'zz-untracked.json'), '{"lesson":"Untracked fixture."}');
   try {
     assert.equal(git('status', '--porcelain'), '', 'plain porcelain status hides the untracked file under this configuration');
     const site = node('build.mjs', 'site');
