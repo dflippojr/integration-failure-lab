@@ -48,7 +48,7 @@ Let a visitor see why integration reliability is hard and what the standard fixe
 
 ## Engine boundaries (so the simulator and the Java runner share scenarios)
 
-- `scenarios/*.json`: failure injections, safeguard settings, and the expected final record.
+- `scenarios/*.json`: failure injections, safeguard settings, and the expected final record. Each needs a non-empty `lesson`: `scripts/build.mjs` refuses a scenario without one, because Guided mode shows it after every run.
 - `engine`: pure function `run(scenario, overrides) -> { trace, record, expected, dlq, dropped, buffered, stats, guards, verdict }`. No DOM access.
 - `ui`: renders a trace. It can't tell whether the trace came from the simulator or from a recorded Java run.
 
