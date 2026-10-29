@@ -11,7 +11,7 @@ export { EVENT_TYPES };
 const TIMEOUT_ATTEMPTS = { first: [1], two: [1, 2], all: 'all' };
 const RETRY_LIMITS = [0, 1, 2, 3, 4, 5];
 // The form's backoff order (ui/lab.js FORM_BACKOFFS); the seeded sample picks by index, so the order matters.
-const FORM_BACKOFFS = [...BACKOFFS].sort();
+const FORM_BACKOFFS = [...BACKOFFS].sort((a, b) => a.localeCompare(b));
 const TOGGLES = ['idempotency', 'ordering', 'schemaValidation', 'deadLetter', 'replayAfterFix'];
 // The safeguard sets the four-failure stratum runs under: the defaults, and the consumer safeguards on.
 const FOUR_FAILURE_SAFEGUARDS = [{}, { idempotency: true, ordering: true, schemaValidation: true }];

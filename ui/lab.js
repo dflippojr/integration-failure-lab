@@ -33,7 +33,7 @@ const TIP_TEXT = {
   deadLetter: 'turn on the dead-letter queue, so lost messages are at least visible',
   retryLimit: 'allow more retries',
 };
-const FORM_BACKOFFS = [...BACKOFFS].sort(); // the form lists them alphabetically: exponential, fixed, none
+const FORM_BACKOFFS = [...BACKOFFS].sort((a, b) => a.localeCompare(b)); // the form lists them alphabetically: exponential, fixed, none
 const secs = ms => (ms >= 1000 ? `${(ms / 1000).toFixed(ms % 1000 ? 2 : 0)} s` : `${ms} ms`);
 
 function readPref(key) {
