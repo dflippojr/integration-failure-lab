@@ -3,7 +3,7 @@
 // scenario (a full ID such as '2a-duplicate' or its chip prefix '2a', any case) opens Guided on that scenario
 // without running it, moving focus or saving the mode; an unknown or non-string value is ignored.
 // Uses the pure engine; everything runs client-side on a virtual clock.
-import { run, judge, suggestSafeguards, DEFAULT_SAFEGUARDS, EXPECTED_RECORD, TIMING } from './engine.js';
+import { run, judge, suggestSafeguards, dollars, BACKOFFS, DEFAULT_SAFEGUARDS, EVENT_TYPES, EXPECTED_RECORD, TIMING } from './engine.js';
 import { SCENARIOS, RECORDING_IDS } from './scenarios.js';
 
 let recordings;
@@ -17,8 +17,6 @@ function loadRecordings() {
 
 const MODE_KEY = 'ifl-mode';
 const SOURCE_KEY = 'ifl-source';
-const EVENT_TYPES = ['ClaimSubmitted', 'ClaimAccepted', 'ClaimPaid'];
-const dollars = cents => `$${(cents / 100).toFixed(2)}`;
 const TIMEOUT_ATTEMPTS = { first: [1], two: [1, 2], all: 'all' };
 const ATTEMPT_TEXT = { first: 'the first attempt', two: 'the first two attempts', all: 'every attempt' };
 // Free-form controls in form order, with the label the form shows; the run comparison reuses the wording.
@@ -35,7 +33,7 @@ const TIP_TEXT = {
   deadLetter: 'turn on the dead-letter queue, so lost messages are at least visible',
   retryLimit: 'allow more retries',
 };
-const BACKOFFS = ['exponential', 'fixed', 'none'];
+const FORM_BACKOFFS = [...BACKOFFS].sort((a, b) => a.localeCompare(b)); // the form lists them alphabetically: exponential, fixed, none
 const secs = ms => (ms >= 1000 ? `${(ms / 1000).toFixed(ms % 1000 ? 2 : 0)} s` : `${ms} ms`);
 
 function readPref(key) {
@@ -76,7 +74,7 @@ export function toFormValues({ failures = {}, safeguards }) {
   const { replayAfterFix, ...guards } = { ...DEFAULT_SAFEGUARDS, ...safeguards };
   const attempts = timeout ? Object.keys(TIMEOUT_ATTEMPTS).find(k => `${TIMEOUT_ATTEMPTS[k]}` === `${timeout.attempts}`) : 'first';
   if (Object.keys(otherFailures).length || replayAfterFix || !attempts || (reorder && reorder.delayMs !== TIMING.reorderDelayMs)
-    || (schemaChange && schemaChange.event !== 'ClaimPaid') || !RETRY_LIMITS.includes(guards.retryLimit) || !BACKOFFS.includes(guards.backoff)) return null;
+    || (schemaChange && schemaChange.event !== 'ClaimPaid') || !RETRY_LIMITS.includes(guards.retryLimit) || !FORM_BACKOFFS.includes(guards.backoff)) return null;
   return {
     ...guards, timeout: !!timeout, timeoutEvent: timeout?.event ?? 'ClaimPaid', timeoutAttempts: attempts,
     duplicate: !!duplicate, duplicateEvent: duplicate?.event ?? 'ClaimPaid', reorder: !!reorder, reorderEvent: reorder?.event ?? 'ClaimAccepted', schemaChange: !!schemaChange,
@@ -315,7 +313,7 @@ export function mountLab(root, { headingLevel = 3, scenario } = {}) {
           h('label', { class: 'ifl-inline' }, `${FREE_LABELS.retryLimit} `,
             h('select', { name: 'retryLimit' }, RETRY_LIMITS.map(n => h('option', { value: n, selected: n === v.retryLimit }, n)))),
           h('label', { class: 'ifl-inline' }, `${FREE_LABELS.backoff} `,
-            h('select', { name: 'backoff' }, BACKOFFS.map(b => h('option', { value: b, selected: b === v.backoff }, b))))),
+            h('select', { name: 'backoff' }, FORM_BACKOFFS.map(b => h('option', { value: b, selected: b === v.backoff }, b))))),
         check('deadLetter'), check('idempotency'), check('ordering'), check('schemaValidation')),
       h('div', { class: 'ifl-actions' }, h('button', { type: 'submit', class: 'button ifl-run' }, 'Run ', h('span', { 'aria-hidden': 'true' }, '→'))),
     );

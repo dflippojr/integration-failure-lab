@@ -3,13 +3,15 @@
 // under the defaults, every four-failure Free-form setting under two safeguard sets, and a seeded sample of
 // three-kind runs. Not every Free-form run: the form has 92,160. Pure and seeded, so every run sees the same list.
 // combinations() -> [{ id, failures, safeguards }], shaped like scenarios/*.json for engine.run() and the Java runner.
-import { DEFAULT_SAFEGUARDS, TIMING } from '../../engine/engine.js';
+import { BACKOFFS, DEFAULT_SAFEGUARDS, EVENT_TYPES, TIMING } from '../../engine/engine.js';
 
-export const EVENT_TYPES = ['ClaimSubmitted', 'ClaimAccepted', 'ClaimPaid'];
-// The Free-form timeout choices in ui/lab.js (TIMEOUT_ATTEMPTS).
+export { EVENT_TYPES };
+// The Free-form timeout and retry choices in ui/lab.js (TIMEOUT_ATTEMPTS, RETRY_LIMITS). Copied, not imported:
+// ui/lab.js imports its neighbours as they sit in dist/, so Node cannot load it from here.
 const TIMEOUT_ATTEMPTS = { first: [1], two: [1, 2], all: 'all' };
 const RETRY_LIMITS = [0, 1, 2, 3, 4, 5];
-const BACKOFFS = ['exponential', 'fixed', 'none'];
+// The form's backoff order (ui/lab.js FORM_BACKOFFS); the seeded sample picks by index, so the order matters.
+const FORM_BACKOFFS = [...BACKOFFS].sort((a, b) => a.localeCompare(b));
 const TOGGLES = ['idempotency', 'ordering', 'schemaValidation', 'deadLetter', 'replayAfterFix'];
 // The safeguard sets the four-failure stratum runs under: the defaults, and the consumer safeguards on.
 const FOUR_FAILURE_SAFEGUARDS = [{}, { idempotency: true, ordering: true, schemaValidation: true }];
@@ -37,7 +39,7 @@ export function failureSettings() {
 export function safeguardToggles() {
   const toggles = [];
   for (const n of RETRY_LIMITS) if (n !== DEFAULT_SAFEGUARDS.retryLimit) toggles.push({ retryLimit: n });
-  for (const b of BACKOFFS) if (b !== DEFAULT_SAFEGUARDS.backoff) toggles.push({ backoff: b });
+  for (const b of FORM_BACKOFFS) if (b !== DEFAULT_SAFEGUARDS.backoff) toggles.push({ backoff: b });
   for (const t of TOGGLES) toggles.push({ [t]: !DEFAULT_SAFEGUARDS[t] });
   return toggles;
 }
@@ -115,7 +117,7 @@ export function combinations({ seed = SEED, sample = RANDOM_SAMPLE } = {}) {
       [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
     }
     const chosen = shuffled.slice(0, 3).map(kind => pick(settings.filter(s => s.kind === kind)));
-    const safeguards = { retryLimit: pick(RETRY_LIMITS), backoff: pick(BACKOFFS) };
+    const safeguards = { retryLimit: pick(RETRY_LIMITS), backoff: pick(FORM_BACKOFFS) };
     for (const t of TOGGLES) safeguards[t] = random() < 0.5;
     add(combo(chosen.sort((a, b) => kinds.indexOf(a.kind) - kinds.indexOf(b.kind)), safeguards));
   }

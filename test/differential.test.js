@@ -1,4 +1,5 @@
 import { test, describe, before, after } from 'node:test';
+import { createHash } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -21,6 +22,14 @@ test('the generator yields at least 300 combinations with unique ids', () => {
 test('the generator is reproducible', () => {
   assert.equal(canonical(combinations()), canonical(all));
   assert.notEqual(canonical(combinations({ seed: 1 })), canonical(all), 'the seed drives the 3-way sample');
+});
+
+// Characterization (#144): the generated list is fixed, so moving its constants cannot change what the differential runs.
+// Regenerate combination-ids.json and the hash only when a change to the list is intended.
+test('the generator yields the recorded combinations', () => {
+  const ids = JSON.parse(readFileSync(new URL('./differential/combination-ids.json', import.meta.url), 'utf8'));
+  assert.deepEqual(all.map(c => c.id), ids);
+  assert.equal(createHash('sha256').update(canonical(all)).digest('hex'), 'bc24a38a7c7b441855c9cd56d5831bf96040dd939796a6ba4328a702738cefff');
 });
 
 test('every (failure kind x target event) setting meets every single safeguard change', () => {

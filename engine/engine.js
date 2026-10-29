@@ -20,9 +20,9 @@ export const DEFAULT_SAFEGUARDS = Object.freeze({
   replayAfterFix: false,     // after the producer fix, replay each DLQ entry once, replayAfterMs after it was parked, with a fresh attempt count
 });
 
-const EVENT_TYPES = ['ClaimSubmitted', 'ClaimAccepted', 'ClaimPaid'];
+export const EVENT_TYPES = Object.freeze(['ClaimSubmitted', 'ClaimAccepted', 'ClaimPaid']);
 const FAILURE_KINDS = ['timeout', 'duplicate', 'reorder', 'schemaChange', 'poison'];
-const BACKOFFS = ['none', 'fixed', 'exponential'];
+export const BACKOFFS = Object.freeze(['none', 'fixed', 'exponential']); // Scenario.BACKOFFS order: the refusal text lists them
 
 const CLAIM_ID = 'C-1001';
 const AMOUNT_CENTS = 12000;
@@ -262,7 +262,7 @@ export function run(scenario, overrides = {}) {
   return { trace, record, expected: EXPECTED_RECORD, dlq, dropped, buffered, stats, guards, verdict };
 }
 
-const dollars = cents => `$${(cents / 100).toFixed(2)}`;
+export const dollars = cents => `$${(cents / 100).toFixed(2)}`;
 const typeOf = id => claimEvents().find(e => e.eventId === id).type;
 
 export function judge(record, { dlq = [], buffered = [] } = {}) {
