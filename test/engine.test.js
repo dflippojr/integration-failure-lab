@@ -225,6 +225,21 @@ test('an on/off safeguard that is not true or false is rejected when the scenari
   refuses({ id: 'x-several', safeguards: { replayAfterFix: 0, ordering: 'yes' } }, 'Unsupported safeguards.ordering "yes"; expected true or false');
 });
 
+test('a scenario that breaks two rules from different groups is refused for the one checked first', () => {
+  // The same cases as rulesBrokenTwice in ScenarioTest.
+  const sameEvent = { poison: { event: 'ClaimPaid' }, schemaChange: { event: 'ClaimPaid' } };
+  refuses({ id: 'x-event-and-backoff', failures: { poison: { event: 'ClaimPayed' } }, safeguards: { backoff: 'bogus' } },
+    'Unsupported failures.poison.event "ClaimPayed"; expected one of ClaimSubmitted, ClaimAccepted, ClaimPaid');
+  refuses({ id: 'x-delay-and-same-event', failures: { reorder: { event: 'ClaimAccepted', delayMs: 50 }, ...sameEvent } },
+    'Unsupported failures.reorder.delayMs "50"; expected 500, the one delay the Java runner takes');
+  refuses({ id: 'x-same-event-and-retry', failures: sameEvent, safeguards: { retryLimit: -1 } },
+    'failures.poison and failures.schemaChange cannot target the same event (ClaimPaid)');
+  refuses({ id: 'x-backoff-and-retry', safeguards: { backoff: 'bogus', retryLimit: -1 } },
+    'Unsupported safeguards.backoff "bogus"; expected one of none, fixed, exponential');
+  refuses({ id: 'x-retry-and-toggle', safeguards: { retryLimit: -1, idempotency: 'yes' } },
+    'Unsupported safeguards.retryLimit "-1"; expected a whole number from 0 to 2147483647');
+});
+
 test('overrides replace scenario safeguards (free-form mode)', () => {
   const r = run(byId('2a-duplicate'), { idempotency: true });
   assert.equal(r.verdict.ok, true);

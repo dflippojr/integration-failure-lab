@@ -186,6 +186,34 @@ class ScenarioTest {
                 .hasMessage("Scenario x-several: Unsupported safeguards.ordering \"yes\"; " + ON_OFF);
     }
 
+    private static Arguments brokenTwice(String id, Map<String, Object> failures, Map<String, Object> safeguards, String message) {
+        return Arguments.of(id, Map.of("id", id, "failures", failures, "safeguards", safeguards), "Scenario " + id + ": " + message);
+    }
+
+    // A scenario that breaks two rules from different groups gets the message of the rule engine.js refusal() checks
+    // first. The same cases as the precedence test in test/engine.test.js.
+    static Stream<Arguments> rulesBrokenTwice() {
+        Map<String, Object> sameEvent = Map.of("poison", Map.of("event", "ClaimPaid"), "schemaChange", Map.of("event", "ClaimPaid"));
+        return Stream.of(
+                brokenTwice("x-event-and-backoff", Map.of("poison", Map.of("event", "ClaimPayed")), Map.of("backoff", "bogus"),
+                        "Unsupported failures.poison.event \"ClaimPayed\"; " + EVENTS),
+                brokenTwice("x-delay-and-same-event", Map.of("reorder", Map.of("event", "ClaimAccepted", "delayMs", 50),
+                                "poison", Map.of("event", "ClaimPaid"), "schemaChange", Map.of("event", "ClaimPaid")), Map.of(),
+                        "Unsupported failures.reorder.delayMs \"50\"; " + DELAY),
+                brokenTwice("x-same-event-and-retry", sameEvent, Map.of("retryLimit", -1),
+                        "failures.poison and failures.schemaChange cannot target the same event (ClaimPaid)"),
+                brokenTwice("x-backoff-and-retry", Map.of(), Map.of("backoff", "bogus", "retryLimit", -1),
+                        "Unsupported safeguards.backoff \"bogus\"; expected one of none, fixed, exponential"),
+                brokenTwice("x-retry-and-toggle", Map.of(), Map.of("retryLimit", -1, "idempotency", "yes"),
+                        "Unsupported safeguards.retryLimit \"-1\"; " + RETRY_LIMIT));
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("rulesBrokenTwice")
+    void aScenarioThatBreaksTwoRulesGetsTheMessageOfTheOneTheEngineChecksFirst(String ignoredId, Map<String, Object> json, String message) {
+        assertThatThrownBy(() -> Scenario.fromMap(json)).isInstanceOf(IllegalArgumentException.class).hasMessage(message);
+    }
+
     @Test
     void wholeNumberRetryLimitsUpToTheIntMaximumStillLoad() {
         assertThat(Scenario.fromMap(Map.of("id", "ok", "safeguards", Map.of("retryLimit", 2.0))).safeguards().retryLimit()).isEqualTo(2);
