@@ -107,6 +107,12 @@ test('the engine outcome of each refused scenario is the error the Java runner g
     'retry-huge': [{}, { retryLimit: 4294967297 }, 'Unsupported safeguards.retryLimit "4294967297"; expected a whole number from 0 to 2147483647'],
     'retry-fraction': [{}, { retryLimit: 0.0001 }, 'Unsupported safeguards.retryLimit "0.0001"; expected a whole number from 0 to 2147483647'],
     'idempotency-fraction': [{}, { idempotency: 0.0001 }, 'Unsupported safeguards.idempotency "0.0001"; expected true or false'],
+    'backoff-object': [{}, { backoff: {} }, 'Unsupported safeguards.backoff "[object Object]"; expected one of none, fixed, exponential'],
+    'backoff-null-element': [{}, { backoff: [null, 1] }, 'Unsupported safeguards.backoff ",1"; expected one of none, fixed, exponential'],
+    'backoff-nested': [{}, { backoff: [[1, 2], 3] }, 'Unsupported safeguards.backoff "1,2,3"; expected one of none, fixed, exponential'],
+    'timeout-object-attempt': [{ timeout: { event: 'ClaimPaid', attempts: [{}] } }, {},
+      'Unsupported failures.timeout.attempts "[object Object]"; expected "all" or a non-empty list of positive integers'],
+    'idempotency-object': [{}, { idempotency: {} }, 'Unsupported safeguards.idempotency "[object Object]"; expected true or false'],
   };
   for (const [id, [failures, safeguards, message]] of Object.entries(refused)) {
     assert.deepEqual(engineOutcome({ id, failures, safeguards }), { error: `Scenario ${id}: ${message}` });
