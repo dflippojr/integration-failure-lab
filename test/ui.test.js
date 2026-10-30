@@ -648,3 +648,49 @@ test('the Try line offers the ordered consumer when the dead-letter queue holds 
   submitValues(root, { ...FREE_FORM_DEFAULTS, duplicate: 'on', reorder: 'on', retryLimit: '0', deadLetter: 'on' });
   assert.equal(tryLine(root), 'Try: turn on the ordered consumer.');
 });
+
+// Characterization of the claim record tables (#151): each row's cell texts and which cells carry ifl-diff.
+const recordTable = box => {
+  const [head, body] = byClass(box, 'ifl-record').children;
+  const cells = row => row.children.map(c => `${c.tagName === 'TH' ? 'th' : c.className === 'ifl-diff' ? 'diff' : 'td'}:${c.text()}`);
+  return [cells(head.children[0]), ...body.children.map(cells)];
+};
+
+test('the verdict table shows expected and observed, with none and ifl-diff on the cells that differ', () => {
+  const root = mount(undefined, 'free');
+  submitValues(root, { ...FREE_FORM_DEFAULTS, timeout: 'on', timeoutEvent: 'ClaimSubmitted', timeoutAttempts: 'all', ordering: 'on' });
+  assert.deepEqual(recordTable(root.find(e => e.className.startsWith('ifl-verdict '))[0]), [
+    ['th:Claim C-1001', 'th:Expected', 'th:Observed'],
+    ['th:Status', 'td:Paid', 'diff:—'],
+    ['th:Paid', 'td:$120.00', 'diff:$0.00'],
+    ['th:Events applied', 'td:E1 → E2 → E3', 'diff:none'],
+  ]);
+  submitValues(root, FREE_FORM_DEFAULTS);
+  assert.deepEqual(recordTable(root.find(e => e.className.startsWith('ifl-verdict '))[0]).slice(1), [
+    ['th:Status', 'td:Paid', 'td:Paid'],
+    ['th:Paid', 'td:$120.00', 'td:$120.00'],
+    ['th:Events applied', 'td:E1 → E2 → E3', 'td:E1 → E2 → E3'],
+  ]);
+});
+
+test('the comparison table shows previous and this run, with ifl-diff only on changed cells', () => {
+  const summary = values => run(formScenario(name => values[name] ?? null)).verdict.summary;
+  const root = mount(undefined, 'free');
+  submitValues(root, FREE_FORM_DEFAULTS);
+  submitValues(root, ACK_LOST);
+  assert.deepEqual(recordTable(compareBox(root)), [
+    ['th:Claim C-1001', 'th:Previous', 'th:This run'],
+    ['th:Verdict', `td:${summary(FREE_FORM_DEFAULTS)}`, `diff:${summary(ACK_LOST)}`],
+    ['th:Status', 'td:Paid', 'td:Paid'],
+    ['th:Paid', 'td:$120.00', 'diff:$240.00'],
+    ['th:Events applied', 'td:E1 → E2 → E3', 'diff:E1 → E2 → E3 → E3'],
+  ]);
+});
+
+test('with headingLevel 6 the comparison and final-state sub-headings are h6', () => {
+  const root = mount({ headingLevel: 6 }, 'free');
+  submitValues(root, FREE_FORM_DEFAULTS);
+  submitValues(root, ACK_LOST);
+  assert.deepEqual(headings(compareBox(root)).map(e => e.tagName), ['H6']);
+  assert.deepEqual(headings(byClass(root, 'ifl-final-state')).map(e => e.tagName), ['H6', 'H6', 'H6']);
+});
