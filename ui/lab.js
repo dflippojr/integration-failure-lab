@@ -69,8 +69,9 @@ function h(tag, attrs = {}, ...children) {
 }
 
 // Free-form control values that reproduce a scenario, or null when a failure or safeguard has no Free-form control.
-export function toFormValues({ failures = {}, safeguards }) {
-  const { timeout, duplicate, reorder, schemaChange, ...otherFailures } = failures;
+export function toFormValues({ failures, safeguards }) {
+  // Null means absent, as in the engine's run().
+  const { timeout, duplicate, reorder, schemaChange, ...otherFailures } = failures ?? {};
   const { replayAfterFix, ...guards } = { ...DEFAULT_SAFEGUARDS, ...safeguards };
   const attempts = timeout ? Object.keys(TIMEOUT_ATTEMPTS).find(k => `${TIMEOUT_ATTEMPTS[k]}` === `${timeout.attempts}`) : 'first';
   if (Object.keys(otherFailures).length || replayAfterFix || !attempts || (reorder && reorder.delayMs !== TIMING.reorderDelayMs)
@@ -134,7 +135,8 @@ const TONE = {
   apply: 'good', dedupe: 'guard', stale: 'guard', buffer: 'guard', release: 'guard',
 };
 
-function failureTags(f = {}) {
+function failureTags(failures) {
+  const f = failures ?? {};
   const tags = [];
   if (f.timeout) tags.push(`${f.timeout.event} times out ${f.timeout.attempts === 'all' ? 'on every attempt' : `on attempt ${f.timeout.attempts.join(' and ')}`}`);
   if (f.duplicate) tags.push(`ack lost for ${f.duplicate.event}`);

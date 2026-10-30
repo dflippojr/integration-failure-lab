@@ -459,6 +459,20 @@ test('scenarios with poison, replay after fix or another delay are not expressib
   assert.equal(toFormValues({ failures: {}, safeguards: { retryLimit: 6 } }), null);
 });
 
+test('null failures and safeguards read as absent, as in the engine', () => {
+  assert.deepEqual(toFormValues({ failures: null, safeguards: null }), toFormValues({}));
+  const [first] = SCENARIOS;
+  const { failures, safeguards } = first;
+  Object.assign(first, { failures: null, safeguards: null });
+  try {
+    const root = mount(undefined, 'guided');
+    assert.deepEqual(root.find(e => e.className === 'ifl-tag ifl-tag-fail').map(t => t.text()), ['no failures']);
+    assert.ok(byClass(root, 'ifl-link ifl-try'), 'the defaults are expressible in Free-form');
+  } finally {
+    Object.assign(first, { failures, safeguards });
+  }
+});
+
 test('the Free-form backoff select lists exponential, fixed, none', () => {
   const form = byClass(mount(undefined, 'free'), 'ifl-form');
   const backoff = form.find(e => e.tagName === 'SELECT' && e.getAttribute('name') === 'backoff')[0];

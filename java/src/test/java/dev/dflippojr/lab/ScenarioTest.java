@@ -248,6 +248,23 @@ class ScenarioTest {
         assertThat(scenario.failures().schemaChangeEvent()).isEqualTo("ClaimAccepted");
     }
 
+    @Test
+    void nullFailuresAndSafeguardsMeanAbsentAsInTheEngine() {
+        // engine.js run() reads failures ?? {} and spreads safeguards over the defaults, so null runs with the defaults.
+        Scenario defaults = Scenario.fromMap(Map.of("id", "x-null"));
+        for (String section : List.of("failures", "safeguards")) {
+            Map<String, Object> json = new HashMap<>(); // Map.of takes no null value
+            json.put("id", "x-null");
+            json.put(section, null);
+            assertThat(Scenario.fromMap(json)).as(section).isEqualTo(defaults);
+        }
+        Map<String, Object> both = new HashMap<>();
+        both.put("id", "x-null");
+        both.put("failures", null);
+        both.put("safeguards", null);
+        assertThat(Scenario.fromMap(both)).isEqualTo(defaults);
+    }
+
     static Stream<Arguments> invalidIds() {
         return Stream.of(
                 Arguments.of("../x", "Scenario ../x"),

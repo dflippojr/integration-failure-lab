@@ -113,6 +113,15 @@ test('the engine outcome of each refused scenario is the error the Java runner g
   }
 });
 
+// The same scenario and outcome as DifferentialRunnerTest.nullFailuresAndSafeguardsRunWithTheDefaultsAsInTheEngine.
+test('null failures and safeguards run with the defaults, as in the Java runner', () => {
+  assert.deepEqual(engineOutcome({ id: 'null-sections', failures: null, safeguards: null }), {
+    record: { status: 'Paid', paidCents: 12000, applied: ['E1', 'E2', 'E3'] },
+    dlq: [], dropped: [], buffered: [],
+    verdict: { ok: true, visible: false, problems: [] },
+  });
+});
+
 test('compare separates agreement, owner-decided divergences, stale entries and unexplained mismatches', () => {
   const [a, b, c, d] = all;
   const ok = { record: { status: 'Paid' }, dlq: [] };
