@@ -592,12 +592,15 @@ public class ScenarioRunner {
             primary = thrown;
         }
 
-        /** Records a task or shutdown failure. The first one wins; later ones are attached to it as suppressed. */
+        /**
+         * Records a task or shutdown failure. The first one wins; later ones are attached to it as suppressed.
+         * Every caller passes an exception it has just built, so {@code cause} is never already primary.
+         */
         synchronized void fail(Exception cause) {
             if (primary == null) {
                 primary = cause;
                 notifyAll();
-            } else if (primary != cause) {
+            } else {
                 primary.addSuppressed(cause);
             }
         }
