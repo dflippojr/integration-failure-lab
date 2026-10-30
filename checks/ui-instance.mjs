@@ -101,9 +101,10 @@ if (command === 'stop') {
     res.setHeader('Content-Type', types[name.slice(name.lastIndexOf('.'))]);
     res.end(readFileSync(join(data, name)));
   });
-  const shutdown = () => { server.close(() => { if (created) clean(); process.exit(0); }); server.closeAllConnections(); };
-  process.on('SIGINT', shutdown);
-  process.on('SIGTERM', shutdown);
+  const shutdown = (code = 0) => { server.close(() => { if (created) clean(); process.exit(code); }); server.closeAllConnections(); };
+  // Wrapped: a signal listener receives the signal name, which must not become the exit code.
+  process.on('SIGINT', () => shutdown());
+  process.on('SIGTERM', () => shutdown());
   server.on('error', error => { if (created) clean(); console.error(error.message); process.exit(1); });
   // Bind first: an occupied port can never be mistaken for our instance.
   server.listen(4193, '127.0.0.1', () => {
@@ -117,6 +118,6 @@ if (command === 'stop') {
       writeFileSync(join(data,'index.html'), html);
       writeFileSync(handle, JSON.stringify({ id, pid: process.pid, origin }));
       console.log('UI_TESTING_URL=' + origin);
-    } catch (error) { console.error(error.message); shutdown(); process.exitCode = 1; }
+    } catch (error) { console.error(error.message); shutdown(1); }
   });
 }

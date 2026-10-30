@@ -1,8 +1,9 @@
 import { createServer } from 'node:http';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFile, execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { execFile, execFileSync, spawn, spawnSync } from 'node:child_process';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -114,4 +115,45 @@ test('stop removes nothing from a handle-less directory while something answers 
   assert.doesNotMatch(result.stdout, /disposable data absent/);
   assert.deepEqual(readdirSync(data), ['lab.js']);
   assert.equal(unrelated.listening, true);
+});
+
+// Seeding failure needs a dist/ without engine.js, so it runs a temp copy of the repo layout.
+test('serve exits 1 and removes the disposable directory when a dist file is missing', t => {
+  const tmp = mkdtempSync(join(tmpdir(), 'ui-instance-'));
+  t.after(() => rmSync(tmp, { recursive: true, force: true }));
+  mkdirSync(join(tmp, 'checks'));
+  mkdirSync(join(tmp, 'dist'));
+  copyFileSync(script, join(tmp, 'checks', 'ui-instance.mjs'));
+  for (const name of ['index.html', 'lab.js', 'lab.css']) copyFileSync(join(root, 'dist', name), join(tmp, 'dist', name));
+  const result = spawnSync(process.execPath, [join(tmp, 'checks', 'ui-instance.mjs'), 'serve'], { cwd: tmp, encoding: 'utf8', timeout: 10000 });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /ENOENT.*engine\.js/);
+  assert.doesNotMatch(result.stdout, /UI_TESTING_URL/);
+  assert.equal(existsSync(join(tmp, '.ui-testing')), false);
+});
+
+test('serve refuses an existing disposable directory and leaves it alone', t => {
+  assert.equal(existsSync(data), false, 'run ui:stop before the Node suite');
+  t.after(() => rmSync(data, { recursive: true, force: true }));
+  seedOrphan(['lab.js', 'notes.txt']);
+  const result = spawnSync(process.execPath, [script, 'serve'], { cwd: root, encoding: 'utf8', timeout: 10000 });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /Disposable directory exists; refusing reuse/);
+  assert.deepEqual(readdirSync(data).sort(), ['lab.js', 'notes.txt']);
+  for (const name of ['lab.js', 'notes.txt']) assert.equal(readFileSync(join(data, name), 'utf8'), 'orphaned by a killed serve');
+});
+
+test('SIGTERM to a healthy serve exits 0 after removing the disposable directory', async t => {
+  assert.equal(existsSync(data), false, 'run ui:stop before the Node suite');
+  const child = spawn(process.execPath, [script, 'serve'], { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] });
+  t.after(() => { child.kill('SIGKILL'); rmSync(data, { recursive: true, force: true }); });
+  await new Promise((resolve, reject) => {
+    child.stdout.on('data', chunk => { if (String(chunk).includes('UI_TESTING_URL')) resolve(); });
+    child.once('exit', code => reject(new Error('serve exited early with ' + code)));
+  });
+  assert.equal(existsSync(handle), true);
+  const exit = new Promise(resolve => child.once('exit', (code, signal) => resolve({ code, signal })));
+  child.kill('SIGTERM');
+  assert.deepEqual(await exit, { code: 0, signal: null });
+  assert.equal(existsSync(data), false);
 });
