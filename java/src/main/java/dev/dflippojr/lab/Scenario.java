@@ -88,7 +88,7 @@ public record Scenario(String id, int order, String title, Failures failures, Sa
     public static Scenario fromFile(Map<String, Object> json) {
         Object id = json.get("id");
         if (!(id instanceof String s && ID_SHAPE.matcher(s).matches())) {
-            throw new IllegalArgumentException("Scenario " + id + ": id must be lowercase letters, digits and single hyphens");
+            throw refused(id, "id must be lowercase letters, digits and single hyphens");
         }
         return fromMap(json);
     }
@@ -96,8 +96,9 @@ public record Scenario(String id, int order, String title, Failures failures, Sa
     @SuppressWarnings("unchecked")
     public static Scenario fromMap(Map<String, Object> json) {
         Map<String, Object> f = (Map<String, Object>) json.getOrDefault("failures", Map.of());
-        String refused = refusal(f);
-        if (refused != null) throw new IllegalArgumentException("Scenario " + json.get("id") + ": " + refused);
+        String refused = refusal(f, json.getOrDefault("safeguards", Map.of()));
+        if (refused != null) throw refused(json.get("id"), refused);
+
         Map<String, Object> timeout = (Map<String, Object>) f.get("timeout");
         Object attempts = timeout == null ? null : timeout.get("attempts");
         Set<Integer> attemptSet = attempts instanceof List<?> list
@@ -112,34 +113,13 @@ public record Scenario(String id, int order, String title, Failures failures, Sa
                 eventOf(f.get("schemaChange")),
                 eventOf(f.get("poison")));
 
-        if (failures.poisonEvent() != null && failures.poisonEvent().equals(failures.schemaChangeEvent())) {
-            throw new IllegalArgumentException("Scenario " + json.get("id")
-                    + ": failures.poison and failures.schemaChange cannot target the same event (" + failures.poisonEvent() + ")");
-        }
-
         Map<String, Object> g = (Map<String, Object>) json.getOrDefault("safeguards", Map.of());
-        // Check the raw value, as the engine does: shown() would turn ["fixed"] into "fixed".
-        Object backoff = g.getOrDefault("backoff", "exponential");
-        if (!(backoff instanceof String name && Safeguards.BACKOFFS.contains(name))) {
-            throw new IllegalArgumentException("Scenario " + json.get("id") + ": "
-                    + unsupported("safeguards.backoff", backoff, "one of " + String.join(", ", Safeguards.BACKOFFS)));
-        }
-        // Then the retry limit and the on/off safeguards, as engine.js refusal() does. intValue() would wrap 4294967297 to 1.
-        Object retryLimit = g.getOrDefault("retryLimit", 3);
-        if (!(retryLimit instanceof Number n && (n.doubleValue() == 0 || positiveInteger(n)))) {
-            throw new IllegalArgumentException("Scenario " + json.get("id") + ": "
-                    + unsupported("safeguards.retryLimit", retryLimit, "a whole number from 0 to " + Integer.MAX_VALUE));
-        }
         Map<String, Boolean> on = new HashMap<>();
         for (Map.Entry<String, Boolean> toggle : TOGGLES) {
-            Object value = g.getOrDefault(toggle.getKey(), toggle.getValue());
-            if (!(value instanceof Boolean b)) {
-                throw new IllegalArgumentException("Scenario " + json.get("id") + ": "
-                        + unsupported("safeguards." + toggle.getKey(), value, "true or false"));
-            }
-            on.put(toggle.getKey(), b);
+            on.put(toggle.getKey(), (Boolean) g.getOrDefault(toggle.getKey(), toggle.getValue()));
         }
-        Safeguards safeguards = new Safeguards(n.intValue(), name, on.get("idempotency"), on.get("ordering"),
+        Safeguards safeguards = new Safeguards(((Number) g.getOrDefault("retryLimit", 3)).intValue(),
+                (String) g.getOrDefault("backoff", "exponential"), on.get("idempotency"), on.get("ordering"),
                 on.get("schemaValidation"), on.get("deadLetter"), on.get("replayAfterFix"));
 
         return new Scenario((String) json.get("id"), ((Number) json.getOrDefault("order", 0)).intValue(),
@@ -148,10 +128,12 @@ public record Scenario(String id, int order, String title, Failures failures, Sa
     }
 
     /**
-     * Why the engine would refuse these failures (engine.js refusal() checks the same rules in the same order, with the
-     * same text), or null. The same-event and safeguards rules come last, in {@link #fromMap}.
+     * Why the engine would refuse this scenario, or null: engine.js refusal() checks the same rules in the same order,
+     * with the same text. Every rule checks the raw JSON value, as the engine does, so {@link #fromMap} only parses
+     * values already known to be valid.
      */
-    private static String refusal(Map<String, Object> f) {
+    @SuppressWarnings("unchecked")
+    private static String refusal(Map<String, Object> f, Object safeguards) {
         for (String kind : FAILURE_KINDS) {
             Object failure = f.get(kind);
             if (failure != null && !(field(failure, "event") instanceof String event && EVENT_TYPES.contains(event))) {
@@ -168,7 +150,34 @@ public record Scenario(String id, int order, String title, Failures failures, Sa
         if (reorder != null && !(field(reorder, "delayMs") instanceof Number delay && delay.doubleValue() == REORDER_DELAY_MS)) {
             return unsupported("failures.reorder.delayMs", field(reorder, "delayMs"), REORDER_DELAY_MS + ", the one delay the Java runner takes");
         }
+        // Every failure that is set has a known event by now.
+        Object poisonEvent = field(f.get("poison"), "event");
+        if (poisonEvent != null && poisonEvent.equals(field(f.get("schemaChange"), "event"))) {
+            return "failures.poison and failures.schemaChange cannot target the same event (" + poisonEvent + ")";
+        }
+        // Cast only now, so a failure refusal still wins over safeguards that are not an object, as before.
+        Map<String, Object> g = (Map<String, Object>) safeguards;
+        // shown() would turn ["fixed"] into "fixed", so this checks the raw value.
+        Object backoff = g.getOrDefault("backoff", "exponential");
+        if (!(backoff instanceof String name && Safeguards.BACKOFFS.contains(name))) {
+            return unsupported("safeguards.backoff", backoff, "one of " + String.join(", ", Safeguards.BACKOFFS));
+        }
+        // intValue() would wrap 4294967297 to 1.
+        Object retryLimit = g.getOrDefault("retryLimit", 3);
+        if (!(retryLimit instanceof Number n && (n.doubleValue() == 0 || positiveInteger(n)))) {
+            return unsupported("safeguards.retryLimit", retryLimit, "a whole number from 0 to " + Integer.MAX_VALUE);
+        }
+        for (Map.Entry<String, Boolean> toggle : TOGGLES) {
+            Object value = g.getOrDefault(toggle.getKey(), toggle.getValue());
+            if (!(value instanceof Boolean)) {
+                return unsupported("safeguards." + toggle.getKey(), value, "true or false");
+            }
+        }
         return null;
+    }
+
+    private static IllegalArgumentException refused(Object id, String reason) {
+        return new IllegalArgumentException("Scenario " + id + ": " + reason);
     }
 
     private static String unsupported(String path, Object value, String expected) {

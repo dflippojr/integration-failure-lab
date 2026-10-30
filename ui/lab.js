@@ -3,7 +3,7 @@
 // scenario (a full ID such as '2a-duplicate' or its chip prefix '2a', any case) opens Guided on that scenario
 // without running it, moving focus or saving the mode; an unknown or non-string value is ignored.
 // Uses the pure engine; everything runs client-side on a virtual clock.
-import { run, judge, suggestSafeguards, dollars, BACKOFFS, DEFAULT_SAFEGUARDS, EVENT_TYPES, EXPECTED_RECORD, TIMING } from './engine.js';
+import { run, judge, suggestSafeguards, dollars, BACKOFFS, CLAIM_ID, DEFAULT_SAFEGUARDS, EVENT_TYPES, EXPECTED_RECORD, TIMING } from './engine.js';
 import { SCENARIOS, RECORDING_IDS } from './scenarios.js';
 
 let recordings;
@@ -379,24 +379,32 @@ export function mountLab(root, { headingLevel = 3, scenario } = {}) {
     output.scrollIntoView?.({ block: 'nearest' });
   }
 
+  const subHeading = (...text) => h(`h${Math.min(6, level + 1)}`, {}, ...text);
+
+  // The claim record as rows of [label, left, right]; recordTable marks the right cell when the two differ.
+  const appliedText = applied => applied.length ? applied.join(' → ') : 'none';
+  const recordRows = (left, right) => [
+    ['Status', left.status ?? '—', right.status ?? '—'],
+    ['Paid', dollars(left.paidCents), dollars(right.paidCents)],
+    ['Events applied', appliedText(left.applied), appliedText(right.applied)],
+  ];
+  const recordTable = (columns, rows) => h('table', { class: 'ifl-record' },
+    h('thead', {}, h('tr', {}, h('th', {}, `Claim ${CLAIM_ID}`), columns.map(title => h('th', {}, title)))),
+    h('tbody', {}, rows.map(([label, left, right]) =>
+      h('tr', {}, h('th', {}, label), h('td', {}, left), h('td', { class: left === right ? '' : 'ifl-diff' }, right)))));
+
   function renderCompare(box, before, after) {
     const changed = Object.entries(FREE_LABELS).map(([name, label]) => [label, settingText(before.values, name), settingText(after.values, name)])
       .filter(([, was, now]) => was !== now);
-    const row = (label, value) => {
-      const was = value(before.result), now = value(after.result);
-      return h('tr', {}, h('th', {}, label), h('td', {}, was), h('td', { class: was === now ? '' : 'ifl-diff' }, now));
-    };
+    const row = (label, value) => [label, value(before.result), value(after.result)];
     box.replaceChildren(
-      h(`h${Math.min(6, level + 1)}`, {}, 'Compared with your previous run'),
+      subHeading('Compared with your previous run'),
       changed.length ? h('ul', {}, changed.map(([label, was, now]) => h('li', {}, `${label}: ${was} → ${now}`)))
         : h('p', {}, 'Same settings as your previous run.'),
-      h('table', { class: 'ifl-record' },
-        h('thead', {}, h('tr', {}, h('th', {}, 'Claim C-1001'), h('th', {}, 'Previous'), h('th', {}, 'This run'))),
-        h('tbody', {},
-          row('Verdict', r => r.verdict.summary),
-          row('Status', r => r.record.status ?? '—'),
-          row('Paid', r => dollars(r.record.paidCents)),
-          row('Events applied', r => r.record.applied.join(' → ') || 'none'))),
+      recordTable(['Previous', 'This run'], [
+        row('Verdict', r => r.verdict.summary),
+        ...recordRows(before.result.record, after.result.record),
+      ]),
     );
     box.hidden = false;
   }
@@ -404,7 +412,7 @@ export function mountLab(root, { headingLevel = 3, scenario } = {}) {
   function renderFinalState(box, result) {
     const field = (label, value) => h('div', {}, h('dt', {}, label), h('dd', {}, value));
     const group = (name, entries, buffered = false) => h('section', { class: 'ifl-final-group', 'aria-label': name },
-      h(`h${Math.min(6, level + 1)}`, {}, name, ' (', entries.length, ')'),
+      subHeading(name, ' (', entries.length, ')'),
       entries.length ? h('ul', {}, entries.map(entry => h('li', {}, h('dl', {},
         field('Event ID', entry.eventId), field('Event type', entry.eventType),
         buffered ? field('Sequence', entry.seq) : [field('Reason', entry.reason), field('Delivery attempts', entry.attempts)],
@@ -422,18 +430,11 @@ export function mountLab(root, { headingLevel = 3, scenario } = {}) {
 
   function renderVerdict(box, result, lesson, scenario) {
     const { record, expected, verdict } = result;
-    const cell = (a, b, fmt = x => x) => h('td', { class: a === b ? '' : 'ifl-diff' }, fmt(a ?? '—'));
-    const applied = r => r.applied.length ? r.applied.join(' → ') : 'none';
     box.className = `ifl-verdict ${verdict.ok ? 'ifl-ok' : verdict.visible ? 'ifl-visible' : 'ifl-silent'}`;
     box.replaceChildren(...[
       h('p', { class: 'ifl-verdict-head' }, verdict.summary),
       verdict.problems.length ? h('ul', {}, verdict.problems.map(p => h('li', {}, p))) : null,
-      h('table', { class: 'ifl-record' },
-        h('thead', {}, h('tr', {}, h('th', {}, 'Claim C-1001'), h('th', {}, 'Expected'), h('th', {}, 'Observed'))),
-        h('tbody', {},
-          h('tr', {}, h('th', {}, 'Status'), h('td', {}, expected.status), cell(record.status, expected.status)),
-          h('tr', {}, h('th', {}, 'Paid'), h('td', {}, dollars(expected.paidCents)), cell(record.paidCents, expected.paidCents, dollars)),
-          h('tr', {}, h('th', {}, 'Events applied'), h('td', {}, applied(expected)), cell(applied(record), applied(expected))))),
+      recordTable(['Expected', 'Observed'], recordRows(expected, record)),
       lesson ? h('p', { class: 'ifl-lesson' }, h('strong', {}, 'Lesson: '), lesson) : null,
       !lesson && !verdict.ok ? hint(result, scenario) : null,
     ].filter(Boolean));
