@@ -1,8 +1,9 @@
 import { createServer } from 'node:http';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFile, execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { execFile, execFileSync, spawnSync } from 'node:child_process';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -114,4 +115,37 @@ test('stop removes nothing from a handle-less directory while something answers 
   assert.doesNotMatch(result.stdout, /disposable data absent/);
   assert.deepEqual(readdirSync(data), ['lab.js']);
   assert.equal(unrelated.listening, true);
+});
+
+// A temp copy of the repo layout lets serve fail or refuse without touching the real .ui-testing.
+const copyLayout = assetNames => {
+  const tmp = mkdtempSync(join(tmpdir(), 'ui-instance-'));
+  mkdirSync(join(tmp, 'checks'));
+  mkdirSync(join(tmp, 'dist'));
+  copyFileSync(script, join(tmp, 'checks', 'ui-instance.mjs'));
+  for (const name of assetNames) copyFileSync(join(root, 'dist', name), join(tmp, 'dist', name));
+  return tmp;
+};
+const serveIn = tmp => spawnSync(process.execPath, [join(tmp, 'checks', 'ui-instance.mjs'), 'serve'], { cwd: tmp, encoding: 'utf8', timeout: 10000 });
+
+test('serve exits 1 and removes the disposable directory when a dist file is missing', t => {
+  const tmp = copyLayout(['index.html', 'lab.js', 'lab.css']);
+  t.after(() => rmSync(tmp, { recursive: true, force: true }));
+  const result = serveIn(tmp);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /ENOENT.*engine\.js/);
+  assert.doesNotMatch(result.stdout, /UI_TESTING_URL/);
+  assert.equal(existsSync(join(tmp, '.ui-testing')), false);
+});
+
+test('serve refuses an existing disposable directory and leaves it alone', t => {
+  const tmp = copyLayout(['index.html', 'lab.js', 'lab.css', 'engine.js', 'scenarios.js', 'executed.js']);
+  t.after(() => rmSync(tmp, { recursive: true, force: true }));
+  mkdirSync(join(tmp, '.ui-testing'));
+  writeFileSync(join(tmp, '.ui-testing', 'notes.txt'), 'left by someone else');
+  const result = serveIn(tmp);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /Disposable directory exists; refusing reuse/);
+  assert.deepEqual(readdirSync(join(tmp, '.ui-testing')), ['notes.txt']);
+  assert.equal(readFileSync(join(tmp, '.ui-testing', 'notes.txt'), 'utf8'), 'left by someone else');
 });
