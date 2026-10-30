@@ -175,20 +175,41 @@ class ScenarioRunnerLifecycleTest {
 
     @Test
     void aWorkerScheduleRejectedDuringShutdownIsIgnored() throws Exception {
-        // E1's producer task stalls until the run gives up and shuts the scheduler down, then schedules its attempt.
+        // E1's producer task stalls in its schedule call until the run gives up and shuts the scheduler down.
+        CountDownLatch workerScheduling = new CountDownLatch(1);
+        CountDownLatch shutDown = new CountDownLatch(1);
         Harness harness = new Harness(FIRST_ONLY, 200) {
             @Override
             void onSchedule(int count, ScheduledThreadPoolExecutor scheduler) {
-                if (Thread.currentThread() != worker.get()) return;
+                if (Thread.currentThread() != worker.get() || workerScheduling.getCount() == 0) return;
+                workerScheduling.countDown();
+                // shutdownNow interrupts this worker before it counts the latch down, so keep waiting.
                 boolean interrupted = false;
-                while (!scheduler.isShutdown()) {
+                while (true) {
                     try {
-                        Thread.sleep(10);
+                        assertThat(shutDown.await(10, TimeUnit.SECONDS)).as("the scheduler was shut down").isTrue();
+                        break;
                     } catch (InterruptedException stopping) {
                         interrupted = true;
                     }
                 }
                 if (interrupted) Thread.currentThread().interrupt();
+            }
+
+            @Override
+            Duration scenarioLimit() {
+                // The deadline starts only once the worker is inside its schedule call.
+                try {
+                    assertThat(workerScheduling.await(10, TimeUnit.SECONDS)).as("E1's producer task is scheduling").isTrue();
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                }
+                return super.scenarioLimit();
+            }
+
+            @Override
+            void afterShutdown() {
+                shutDown.countDown();
             }
         };
         harness.limit = Duration.ofMillis(200);
@@ -259,6 +280,13 @@ class ScenarioRunnerLifecycleTest {
                     workersDoNotStop = false;
                     return false;
                 }
+
+                @Override
+                public List<Runnable> shutdownNow() {
+                    List<Runnable> dropped = super.shutdownNow();
+                    afterShutdown();
+                    return dropped;
+                }
             };
         }
 
@@ -280,6 +308,15 @@ class ScenarioRunnerLifecycleTest {
 
         /** The task of the {@code count}th schedule call has run. */
         void afterTask(int count) {
+        }
+
+        /** The run's scenario limit, read once the timeline has started and just before the run waits on it. */
+        Duration scenarioLimit() {
+            return limit;
+        }
+
+        /** The scheduler has been shut down: it refuses new work and has interrupted its worker. */
+        void afterShutdown() {
         }
 
         interface Expectation {
@@ -312,7 +349,7 @@ class ScenarioRunnerLifecycleTest {
 
                     @Override
                     Duration scenarioLimit() {
-                        return limit;
+                        return Harness.this.scenarioLimit();
                     }
                 };
                 Scenario scenario = Scenario.fromMap(Map.of("id", "lifecycle"));
