@@ -1,7 +1,7 @@
 import { createServer } from 'node:http';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFile, execFileSync, spawnSync } from 'node:child_process';
+import { execFile, execFileSync, spawn, spawnSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -148,4 +148,20 @@ test('serve refuses an existing disposable directory and leaves it alone', t => 
   assert.match(result.stderr, /Disposable directory exists; refusing reuse/);
   assert.deepEqual(readdirSync(join(tmp, '.ui-testing')), ['notes.txt']);
   assert.equal(readFileSync(join(tmp, '.ui-testing', 'notes.txt'), 'utf8'), 'left by someone else');
+});
+
+test('SIGTERM to a healthy serve exits 0 after removing the disposable directory', async t => {
+  const tmp = copyLayout(['index.html', 'lab.js', 'lab.css', 'engine.js', 'scenarios.js', 'executed.js']);
+  t.after(() => rmSync(tmp, { recursive: true, force: true }));
+  const child = spawn(process.execPath, [join(tmp, 'checks', 'ui-instance.mjs'), 'serve'], { cwd: tmp, stdio: ['ignore', 'pipe', 'pipe'] });
+  t.after(() => child.kill('SIGKILL'));
+  await new Promise((resolve, reject) => {
+    child.stdout.on('data', chunk => { if (String(chunk).includes('UI_TESTING_URL')) resolve(); });
+    child.once('exit', code => reject(new Error('serve exited early with ' + code)));
+  });
+  assert.equal(existsSync(join(tmp, '.ui-testing', 'instance.json')), true);
+  const exit = new Promise(resolve => child.once('exit', (code, signal) => resolve({ code, signal })));
+  child.kill('SIGTERM');
+  assert.deepEqual(await exit, { code: 0, signal: null });
+  assert.equal(existsSync(join(tmp, '.ui-testing')), false);
 });
