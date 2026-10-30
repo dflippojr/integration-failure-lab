@@ -140,7 +140,7 @@ test('serve refuses an existing disposable directory and leaves it alone', t => 
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /Disposable directory exists; refusing reuse/);
   assert.deepEqual(readdirSync(data).sort(), ['lab.js', 'notes.txt']);
-  assert.equal(readFileSync(join(data, 'notes.txt'), 'utf8'), 'orphaned by a killed serve');
+  for (const name of ['lab.js', 'notes.txt']) assert.equal(readFileSync(join(data, name), 'utf8'), 'orphaned by a killed serve');
 });
 
 test('SIGTERM to a healthy serve exits 0 after removing the disposable directory', async t => {
