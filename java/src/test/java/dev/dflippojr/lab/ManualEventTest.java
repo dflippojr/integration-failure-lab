@@ -15,7 +15,8 @@ import org.springframework.web.client.RestClient;
 
 /** The app serving the downstream with no scenario run yet, as when --lab.export-dir is absent. */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
+// BEFORE_CLASS: a context cached by an earlier class (ScenarioRunnerTest, say) holds that class's runs.
+@DirtiesContext(classMode = DirtiesContext.ClassMode.BEFORE_CLASS)
 class ManualEventTest {
 
     @LocalServerPort
