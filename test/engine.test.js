@@ -277,6 +277,13 @@ test('judge accepts only the expected record', () => {
   assert.equal(judge({ status: 'Paid', paidCents: 12000, applied: ['E1', 'E3'] }).ok, false);
 });
 
+test('judge lists missing events in event order and throws on an unknown event id', () => {
+  const { problems } = judge({ status: null, paidCents: 0, applied: [] });
+  assert.deepEqual(problems.slice(0, 3), ['ClaimSubmitted never applied', 'ClaimAccepted never applied', 'ClaimPaid never applied']);
+  assert.throws(() => judge({ status: 'Paid', paidCents: 12000, applied: ['E9'] }));
+  assert.throws(() => judge({ ...EXPECTED_RECORD, applied: [...EXPECTED_RECORD.applied, 'E9'] }), /^Error: Unknown event E9$/);
+});
+
 // Every Free-form combination the form can express (exponential backoff only).
 function* freeFormScenarios() {
   const events = ['ClaimSubmitted', 'ClaimAccepted', 'ClaimPaid'];

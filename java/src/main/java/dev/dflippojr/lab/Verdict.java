@@ -16,10 +16,13 @@ public record Verdict(boolean ok, boolean visible, List<String> problems) {
 
     static final List<String> EXPECTED_APPLIED = ClaimEvent.sequence().stream().map(ClaimEvent::eventId).toList();
     static final String EXPECTED_STATUS = "Paid";
+    private static final Map<String, String> TYPE_BY_ID =
+            ClaimEvent.sequence().stream().collect(Collectors.toUnmodifiableMap(ClaimEvent::eventId, ClaimEvent::type));
 
     public static Verdict judge(String status, long paidCents, List<String> applied, List<String> dlq, List<String> buffered) {
         List<String> problems = new ArrayList<>();
         Map<String, Integer> counts = new LinkedHashMap<>();
+        applied.forEach(Verdict::typeOf); // an unknown id throws, even one applied once
         applied.forEach(id -> counts.merge(id, 1, Integer::sum));
 
         counts.forEach((id, n) -> {
@@ -51,8 +54,9 @@ public record Verdict(boolean ok, boolean visible, List<String> problems) {
     }
 
     private static String typeOf(String eventId) {
-        return ClaimEvent.sequence().stream().filter(e -> e.eventId().equals(eventId)).findFirst()
-                .orElseThrow(() -> new IllegalArgumentException("Unknown event " + eventId)).type();
+        String type = TYPE_BY_ID.get(eventId);
+        if (type == null) throw new IllegalArgumentException("Unknown event " + eventId);
+        return type;
     }
 
     private static String dollars(long cents) {
