@@ -2,6 +2,7 @@ package dev.dflippojr.lab;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.InstanceOfAssertFactories.THROWABLE;
 
 import java.net.InetSocketAddress;
 import java.time.Duration;
@@ -133,6 +134,93 @@ class ScenarioRunnerLifecycleTest {
         harness.assertStopped();
     }
 
+    @Test
+    void workersThatDoNotStopFailTheRun() throws Exception {
+        // Every event settles; only cleanup reports a worker still running.
+        Harness harness = new Harness(List.of(0L, 40L, 80L), 200);
+        harness.workersDoNotStop = true;
+        harness.run(run -> assertThatThrownBy(run)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("delivery workers did not stop")
+                .hasNoSuppressedExceptions());
+    }
+
+    @Test
+    void aRejectedWorkerScheduleWhileRunningFailsTheRun() throws Exception {
+        // As in the retry case above, but the scheduler refuses the retry timer while it is still running.
+        Harness harness = new Harness(FIRST_ONLY, 500)
+                .failWorkerSchedule(2, new RejectedExecutionException("injected rejection"));
+        harness.limit = Duration.ofSeconds(5);
+        long start = System.nanoTime();
+        harness.run(run -> assertThatThrownBy(run)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageStartingWith("Scenario lifecycle: delivery of E1 (ClaimSubmitted) attempt 1 failed")
+                .cause().isInstanceOf(RejectedExecutionException.class).hasMessage("injected rejection"));
+        assertThat(Duration.ofNanos(System.nanoTime() - start)).isLessThan(Duration.ofSeconds(5));
+        harness.assertStopped();
+    }
+
+    @Test
+    void aLaterFailureIsSuppressedUnderTheFirst() throws Exception {
+        Harness harness = new Harness(FIRST_ONLY, 500)
+                .failWorkerSchedule(2, new RejectedExecutionException("injected rejection"));
+        harness.limit = Duration.ofSeconds(5);
+        harness.workersDoNotStop = true;
+        harness.run(run -> assertThatThrownBy(run)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageStartingWith("Scenario lifecycle: delivery of E1 (ClaimSubmitted) attempt 1 failed")
+                .satisfies(failure -> assertThat(failure.getSuppressed()).singleElement(THROWABLE)
+                        .isInstanceOf(IllegalStateException.class).hasMessage("delivery workers did not stop")));
+    }
+
+    @Test
+    void aWorkerScheduleRejectedDuringShutdownIsIgnored() throws Exception {
+        // E1's producer task stalls in its schedule call until the run gives up and shuts the scheduler down.
+        CountDownLatch workerScheduling = new CountDownLatch(1);
+        CountDownLatch shutDown = new CountDownLatch(1);
+        Harness harness = new Harness(FIRST_ONLY, 200) {
+            @Override
+            void onSchedule(int count, ScheduledThreadPoolExecutor scheduler) {
+                if (Thread.currentThread() != worker.get() || workerScheduling.getCount() == 0) return;
+                workerScheduling.countDown();
+                // shutdownNow interrupts this worker before it counts the latch down, so keep waiting.
+                boolean interrupted = false;
+                while (true) {
+                    try {
+                        assertThat(shutDown.await(10, TimeUnit.SECONDS)).as("the scheduler was shut down").isTrue();
+                        break;
+                    } catch (InterruptedException stopping) {
+                        interrupted = true;
+                    }
+                }
+                if (interrupted) Thread.currentThread().interrupt();
+            }
+
+            @Override
+            Duration scenarioLimit() {
+                // The deadline starts only once the worker is inside its schedule call.
+                try {
+                    assertThat(workerScheduling.await(10, TimeUnit.SECONDS)).as("E1's producer task is scheduling").isTrue();
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                }
+                return super.scenarioLimit();
+            }
+
+            @Override
+            void afterShutdown() {
+                shutDown.countDown();
+            }
+        };
+        harness.limit = Duration.ofMillis(200);
+        harness.run(run -> assertThatThrownBy(run)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Scenario lifecycle did not finish in 200 ms")
+                .hasNoSuppressedExceptions());
+        assertThat(harness.rejected).as("the stalled task's schedule was refused").hasValue(1);
+        harness.assertStopped();
+    }
+
     /** A runner on a one-thread scheduler the test can observe, posting to a stub downstream. */
     private static class Harness {
         final AtomicReference<Thread> worker = new AtomicReference<>();
@@ -140,6 +228,11 @@ class ScenarioRunnerLifecycleTest {
         final int status;
         Duration limit = Duration.ofSeconds(30);
         int failingWorkerSchedule;
+        RuntimeException injectedFailure;
+        /** Makes the runner's wait for its workers to stop report that they did not, once. */
+        boolean workersDoNotStop;
+        /** Schedule calls the scheduler itself refused. */
+        final AtomicInteger rejected = new AtomicInteger();
         final ScheduledThreadPoolExecutor scheduler;
         boolean terminatedByRunner;
         int queuedAfterRun = -1;
@@ -161,23 +254,49 @@ class ScenarioRunnerLifecycleTest {
                     onSchedule(count, this);
                     if (Thread.currentThread() == worker.get() && !isShutdown()
                             && workerSchedules.incrementAndGet() == failingWorkerSchedule) {
-                        throw new IllegalStateException("injected task failure");
+                        throw injectedFailure;
                     }
-                    ScheduledFuture<?> future = super.schedule(() -> {
-                        try {
-                            task.run();
-                        } finally {
-                            afterTask(count);
-                        }
-                    }, delay, unit);
+                    ScheduledFuture<?> future;
+                    try {
+                        future = super.schedule(() -> {
+                            try {
+                                task.run();
+                            } finally {
+                                afterTask(count);
+                            }
+                        }, delay, unit);
+                    } catch (RejectedExecutionException refused) {
+                        rejected.incrementAndGet();
+                        throw refused;
+                    }
                     afterSchedule(count);
                     return future;
+                }
+
+                @Override
+                public boolean awaitTermination(long timeout, TimeUnit unit) throws InterruptedException {
+                    boolean terminated = super.awaitTermination(timeout, unit);
+                    if (!workersDoNotStop) return terminated;
+                    workersDoNotStop = false;
+                    return false;
+                }
+
+                @Override
+                public List<Runnable> shutdownNow() {
+                    List<Runnable> dropped = super.shutdownNow();
+                    afterShutdown();
+                    return dropped;
                 }
             };
         }
 
         Harness failWorkerSchedule(int count) {
+            return failWorkerSchedule(count, new IllegalStateException("injected task failure"));
+        }
+
+        Harness failWorkerSchedule(int count, RuntimeException failure) {
             failingWorkerSchedule = count;
+            injectedFailure = failure;
             return this;
         }
 
@@ -189,6 +308,15 @@ class ScenarioRunnerLifecycleTest {
 
         /** The task of the {@code count}th schedule call has run. */
         void afterTask(int count) {
+        }
+
+        /** The run's scenario limit, read once the timeline has started and just before the run waits on it. */
+        Duration scenarioLimit() {
+            return limit;
+        }
+
+        /** The scheduler has been shut down: it refuses new work and has interrupted its worker. */
+        void afterShutdown() {
         }
 
         interface Expectation {
@@ -221,7 +349,7 @@ class ScenarioRunnerLifecycleTest {
 
                     @Override
                     Duration scenarioLimit() {
-                        return limit;
+                        return Harness.this.scenarioLimit();
                     }
                 };
                 Scenario scenario = Scenario.fromMap(Map.of("id", "lifecycle"));
