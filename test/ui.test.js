@@ -159,6 +159,20 @@ test('rerun clears completed snapshots until the new playback finishes', () => a
   assertFinal(root, run(SCENARIOS.find(s => s.id.startsWith('1b-'))));
 }));
 
+test('pressing Run again during a replay\'s playback restarts it without a second animation', () => animated(async (drain, timers) => {
+  const root = mount(undefined, 'guided');
+  chooseSource(root, 'exec');
+  await clickRun(root);
+  for (const callback of [...timers.values()]) callback();
+  const again = clickRun(root);
+  assert.equal(timers.size, 0, 'the old animation stops while the replay reloads');
+  await again;
+  assert.equal(timers.size, 1);
+  drain();
+  assert.equal(byClass(root, 'ifl-trace').children.length, EXECUTED[SCENARIOS[0].id].trace.length);
+  assert.equal(root.find(e => e.className.includes('ifl-run'))[0].getAttribute('disabled'), null);
+}));
+
 for (const switchKind of ['scenario', 'source', 'mode']) {
   for (const completed of [true, false]) {
     test(`${switchKind} switch clears output and cancels ${completed ? 'completed' : 'active'} playback`, () => animated((drain, timers) => {
@@ -548,6 +562,13 @@ test('an unchecked failure ignores its event select when comparing settings', ()
   submitValues(root, FREE_FORM_DEFAULTS);
   submitValues(root, { ...FREE_FORM_DEFAULTS, duplicateEvent: 'ClaimAccepted', timeoutAttempts: 'all' });
   assert.equal(compareBox(root).find(e => e.tagName === 'P')[0].text(), 'Same settings as your previous run.');
+});
+
+test('the comparison names the out-of-order delay when it changes', () => {
+  const root = mount(undefined, 'free');
+  submitValues(root, FREE_FORM_DEFAULTS);
+  submitValues(root, { ...FREE_FORM_DEFAULTS, reorder: 'on' });
+  assert.deepEqual(compareBox(root).find(e => e.tagName === 'LI').map(li => li.text()), ['Delay: off → ClaimAccepted by 500 ms']);
 });
 
 test('the comparison appears only after animated playback, and an interrupted run does not become the previous run', () => animated(drain => {
