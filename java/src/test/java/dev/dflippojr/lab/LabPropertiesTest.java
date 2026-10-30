@@ -11,6 +11,7 @@ import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Configuration;
@@ -106,9 +107,21 @@ class LabPropertiesTest {
                 .isThrownBy(() -> new LabProperties(null, "export", 0, 0, null, 0, 0, "in.json", "out.json", 0))
                 .withMessageContaining("set one");
         assertThat(new LabProperties(null, null, 0, 0, null, 0, 0, null, null, 0).differentialWorkers()).isEqualTo(1);
+    }
+
+    // scripts/differential.mjs parseOptions caps --workers at 4 too: each worker starts its own Spring context and port.
+    @ParameterizedTest
+    @ValueSource(ints = {-1, 5})
+    void differentialWorkersOutsideOneToFourFailAtConstruction(int workers) {
         assertThatIllegalArgumentException()
-                .isThrownBy(() -> new LabProperties(null, null, 0, 0, null, 0, 0, null, null, 5))
-                .withMessageContaining("between 1 and 4");
+                .isThrownBy(() -> new LabProperties(null, null, 0, 0, null, 0, 0, null, null, workers))
+                .withMessage("lab.differential-workers must be between 1 and 4");
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {1, 4})
+    void differentialWorkersFromOneToFourAreKept(int workers) {
+        assertThat(new LabProperties(null, null, 0, 0, null, 0, 0, null, null, workers).differentialWorkers()).isEqualTo(workers);
     }
 
     @Configuration(proxyBeanMethods = false)

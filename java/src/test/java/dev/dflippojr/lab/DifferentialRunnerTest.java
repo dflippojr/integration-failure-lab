@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -112,6 +113,22 @@ class DifferentialRunnerTest {
                         + " expected a whole number from 0 to 2147483647"));
         assertThat(DifferentialRunner.outcome(runner, Map.of("id", "idempotency-fraction", "safeguards", Map.of("idempotency", 0.0001))))
                 .isEqualTo(Map.of("error", "Scenario idempotency-fraction: Unsupported safeguards.idempotency \"0.0001\"; expected true or false"));
+        assertThat(DifferentialRunner.outcome(runner, Map.of("id", "backoff-object", "safeguards", Map.of("backoff", Map.of()))))
+                .isEqualTo(Map.of("error", "Scenario backoff-object: Unsupported safeguards.backoff \"[object Object]\";"
+                        + " expected one of none, fixed, exponential"));
+        assertThat(DifferentialRunner.outcome(runner, Map.of("id", "backoff-null-element",
+                "safeguards", Map.of("backoff", Arrays.asList(null, 1)))))
+                .isEqualTo(Map.of("error", "Scenario backoff-null-element: Unsupported safeguards.backoff \",1\";"
+                        + " expected one of none, fixed, exponential"));
+        assertThat(DifferentialRunner.outcome(runner, Map.of("id", "backoff-nested", "safeguards", Map.of("backoff", List.of(List.of(1, 2), 3)))))
+                .isEqualTo(Map.of("error", "Scenario backoff-nested: Unsupported safeguards.backoff \"1,2,3\";"
+                        + " expected one of none, fixed, exponential"));
+        assertThat(DifferentialRunner.outcome(runner, Map.of("id", "timeout-object-attempt",
+                "failures", Map.of("timeout", Map.of("event", "ClaimPaid", "attempts", List.of(Map.of()))))))
+                .isEqualTo(Map.of("error", "Scenario timeout-object-attempt: Unsupported failures.timeout.attempts \"[object Object]\";"
+                        + " expected \"all\" or a non-empty list of positive integers"));
+        assertThat(DifferentialRunner.outcome(runner, Map.of("id", "idempotency-object", "safeguards", Map.of("idempotency", Map.of()))))
+                .isEqualTo(Map.of("error", "Scenario idempotency-object: Unsupported safeguards.idempotency \"[object Object]\"; expected true or false"));
     }
 
     @Test

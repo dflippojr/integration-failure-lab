@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -174,6 +175,19 @@ class ScenarioTest {
     @ParameterizedTest(name = "{1}")
     @MethodSource("numbersAsJavaScriptShowsThem")
     void aNumberIsShownAsJavaScriptsStringShowsIt(Number value, String shown) {
+        assertThat(Scenario.shown(value)).isEqualTo(shown);
+    }
+
+    // String() of an object is [object Object]; of an array, its elements joined by commas, with null as empty.
+    static Stream<Arguments> objectsAndListsAsJavaScriptShowsThem() {
+        return Stream.of(
+                Arguments.of(Map.of(), "[object Object]"), Arguments.of(Arrays.asList(null, 1), ",1"),
+                Arguments.of(List.of(List.of(1, 2), 3), "1,2,3"), Arguments.of(List.of(Map.of()), "[object Object]"));
+    }
+
+    @ParameterizedTest(name = "{1}")
+    @MethodSource("objectsAndListsAsJavaScriptShowsThem")
+    void anObjectOrListIsShownAsJavaScriptsStringShowsIt(Object value, String shown) {
         assertThat(Scenario.shown(value)).isEqualTo(shown);
     }
 
