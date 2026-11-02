@@ -8,7 +8,7 @@ Try it on [dflippojr.dev](https://dflippojr.dev/#lab), where it's the site's pla
 
 *45-second silent demo ([MP4](demo/out/lab-demo.mp4), 1.8 MB): break the claims integration, see the failure, fix it. Captions are burned in. See [Re-rendering the demo](#re-rendering-the-demo).*
 
-**Status:** v1 simulation engine and all twelve scenarios built and tested (`npm test`, Node 20+, no runtime dependencies). Browser UI built (`ui/`): a first-visit picker for **Guided** or **Free-form**, animated trace, expected-vs-observed record, verdict, and final Dead-letter queue, Dropped messages, and Ordering buffer contents. Each final group shows its count and either entry details or an explicit empty state. Trace counters (including Parked / dropped events) are cumulative history, not current queue occupancy: replay can drain the final DLQ while leaving historical parked events counted. Snapshots appear when playback finishes, including with reduced motion, and clear on a new run or mode, scenario, or source switch. **v2 (Java 21 / Spring Boot 4.1.1)** in `java/` executes the same scenario files over real HTTP (a delivery queue with read timeouts, retries, and a dead-letter queue posting to an embedded-Tomcat claim-status service with server-side fault injection) and exports traces to `executed/`. Guided mode on the site can replay those recorded runs next to the simulation.
+**Status:** v1 simulation engine and all twelve scenarios built and tested (`npm test`, Node 20+, no runtime dependencies). Browser UI built (`ui/`): a first-visit picker for **Guided** or **Free-form**, animated trace, expected-vs-observed record, verdict, and final Dead-letter queue, Dropped messages, and Ordering buffer contents. Each final group shows its count and either entry details or an explicit empty state. Trace counters (including Parked / dropped events) are cumulative history, not current queue occupancy: replay can drain the final DLQ while leaving historical parked events counted. Snapshots appear when playback finishes, including with reduced motion, and clear on a new run or mode, scenario, or source switch. **v2 (Java 21 / Spring Boot 4.1.2)** in `java/` executes the same scenario files over real HTTP (a delivery queue with read timeouts, retries, and a dead-letter queue posting to an embedded-Tomcat claim-status service with server-side fault injection) and exports traces to `executed/`. Guided mode on the site can replay those recorded runs next to the simulation.
 
 - [Architecture](docs/ARCHITECTURE.md): components, event model, what's simulated vs. executed
 - [Scenarios](docs/SCENARIOS.md): the v1 scenario matrix with expected outcomes
@@ -94,25 +94,26 @@ See [the UI testing contract](docs/ui-testing.md) for isolated startup, syntheti
 
 ### CI
 
-Run the whole gate locally with `npm run ci:local` (see [AGENTS.md](AGENTS.md)).
+Run the five test jobs locally with `npm run ci:local` (see [AGENTS.md](AGENTS.md)); `gate-guard`, `publish` and SonarCloud run only on GitHub.
 
-GitHub Actions runs two workflows on pushes and pull requests, and a third on pull requests only:
+GitHub Actions runs four workflows. `ci.yml` runs on pushes and pull requests, `sonar.yml` on pushes to `main` and on pull requests, `gate-guard-target.yml` on pull requests, and `review.yml` when a pull request opens and when it is dispatched by hand:
 
-- `.github/workflows/ci.yml`: five jobs and a `gate` job, which is the one check to require.
+- `.github/workflows/ci.yml`: five test jobs, a `gate-guard` job, a `gate` job and a `publish` job. `gate` is the one check to require, next to the `gate-guard` check from `gate-guard-target.yml` below.
   - `engine`: `npm run lint` (ESLint recommended rules, `eslint.config.js`), then `npm run test:coverage` (Node 22), which is `npm test` with line and branch coverage floors.
   - `java`: `./mvnw -B verify` in `java/` (Java 21), including a JaCoCo line-coverage floor.
   - `differential`: `npm run differential` against a freshly built runner jar (see [Differential testing](#differential-testing)).
   - `recordings`: `npm run recordings` against a freshly built runner jar (see [Recording drift](#recording-drift)).
   - `playwright`: isolated desktop/Pixel 7 Playwright journeys in light, a host-token and Guided/Free-form smoke test on both dark projects, plus desktop-light breakpoint and live-resize checks on GitHub-hosted runners with one worker.
-  - `gate`: runs after the other five even when one fails, and passes only when all five succeed.
-- `.github/workflows/sonar.yml`: SonarCloud analysis with coverage (lcov from the Node test runner, JaCoCo from the Java module). It runs on pushes to `main` and on pull requests from this repo, and fails when the quality gate fails. A newer push cancels a PR's running analysis, but runs on `main` are never cancelled. Project keys are in `sonar-project.properties`.
+  - `gate-guard`: an early signal that calls the shared gate guard described below from this pull request's head. It only prints a notice on pushes. It is not the judge: `gate-guard-target.yml` posts the `gate-guard` check that the ruleset requires.
+  - `gate`: runs after `engine`, `java`, `differential`, `recordings`, `playwright` and `gate-guard` even when one fails, and passes only when all six succeed.
+  - `publish`: runs on pushes to `main` after `gate` succeeds, and publishes the rolling `lab-bundle` pre-release.
+- `.github/workflows/sonar.yml`: SonarCloud analysis with coverage (lcov from the Node test runner, JaCoCo from the Java module). It runs on pushes to `main` and on pull requests from this repo, and fails when the quality gate fails. A newer push cancels a PR's running analysis, but runs on `main` are never cancelled. Project keys are in `sonar-project.properties`. Automatic analysis must be off in SonarCloud, because this workflow is the analysis.
 - `.github/workflows/gate-guard-target.yml`: the shared gate guard from dflippojr/.github, pinned by full commit SHA. It posts the `gate-guard` check, which fails a pull request that deletes or skips tests, adds or raises retries, or edits workflows, coverage floors or Sonar config, unless the owner's `gate-change-approved` label was applied after the newest push. It runs under `pull_request_target`, so GitHub reads it from `main` and a pull request can't rewrite the check that judges it; it reads the pull request's diff as data and never checks out or runs its code. The `main` ruleset requires `gate-guard` next to `gate`, both from GitHub Actions.
+- `.github/workflows/review.yml`: the automated code review, a thin caller of the shared review workflow in dflippojr/agent-harness. It reviews a pull request once, when the pull request opens, if the pull request comes from this repository and is not from Dependabot. To re-review after later commits, dispatch the workflow by hand with the pull request number.
 
 Dependabot checks weekly for Maven updates in `/java`, npm updates at `/`, and GitHub Actions updates at `/`, as configured in `.github/dependabot.yml`. The root npm entry covers the Playwright, esbuild and ESLint dev dependencies.
 
 SonarCloud requires an authorized analysis token named `SONAR_TOKEN` in repository **Actions** secrets for ordinary runs and separately in **Dependabot** secrets for Dependabot PRs (Settings → Secrets and variables → Dependabot → New repository secret). GitHub supplies the appropriate secret store through the same workflow reference; Actions secrets are unavailable to Dependabot-triggered runs. Fork PRs remain excluded. If the token is absent, the SonarCloud workflow emits a notice and a job summary and skips analysis cleanly; this is not a successful analysis or a passing quality gate. The `ci` workflow still runs.
-
-Owner verification: ensure the configured SonarCloud project exists with automatic analysis disabled, save the authorized Dependabot `SONAR_TOKEN`, and verify analysis on a `main` push, an ordinary same-repository PR, and at least one real Dependabot PR. Record the workflow and SonarCloud result links for the PR's head commit in issue #16; a missing-token notice does not satisfy that verification.
 
 ## License
 
