@@ -92,6 +92,10 @@ HyperFrames, FFmpeg (`ffmpeg-static`) and GSAP are pinned in `demo/package.json`
 
 See [the UI testing contract](docs/ui-testing.md) for isolated startup, synthetic journeys, device coverage and cleanup. Run `npm ci`, then `npx playwright install chromium webkit`, and `npm run test:ui -- --workers=1`. The test runner owns its loopback server; finish with `npm run ui:stop`, including after failures. For manual exploration use `npm run ui:start` and the printed local URL. No backend or credentials are required.
 
+### Manual requests
+
+While the app is up, you can post to `POST /claims/{claimId}/events` yourself, with an integer `X-Attempt` header. The endpoint checks the body's shape only: `eventId`, `type` and `status` must be strings, `seq` a 32-bit integer and `payload`, if present, an object. Anything else gets a 400, which is not retryable, rather than the 500 that means "processing error, retry" in this lab. It does not validate event ids or amounts: it accepts unknown events, a negative or fractional `paidAmount` and any `{claimId}`. A text `paidAmount` on a `ClaimPaid` event still gets the poison 500. This endpoint is a teaching toy, not a real downstream.
+
 ### CI
 
 Run the five test jobs locally with `npm run ci:local` (see [AGENTS.md](AGENTS.md)); `gate-guard`, `publish` and SonarCloud run only on GitHub.
