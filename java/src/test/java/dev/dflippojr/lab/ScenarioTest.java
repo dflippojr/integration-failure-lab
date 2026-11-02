@@ -229,12 +229,19 @@ class ScenarioTest {
     }
 
     @Test
-    void aFailureRefusalStillWinsWhenTheSafeguardsAreNotAnObject() {
-        // The engine spreads [] into no safeguards and refuses the event, so the failure rules run before the safeguards cast.
+    void aNonObjectSectionIsRefusedBeforeAnyFailureRule() {
+        // refusal() checks the shape of both sections first, as engine.js does, so the event rule never reads them.
         assertThatThrownBy(() -> Scenario.fromMap(Map.of("id", "x-event-and-list-safeguards",
                 "failures", Map.of("poison", Map.of("event", "ClaimPayed")), "safeguards", List.of())))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("Scenario x-event-and-list-safeguards: Unsupported failures.poison.event \"ClaimPayed\"; " + EVENTS);
+                .hasMessage("Scenario x-event-and-list-safeguards: Unsupported safeguards \"\"; expected an object");
+    }
+
+    @Test
+    void nonObjectFailuresAreRefused() {
+        assertThatThrownBy(() -> Scenario.fromMap(Map.of("id", "x", "failures", "timeout")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageStartingWith("Scenario x: ");
     }
 
     @Test

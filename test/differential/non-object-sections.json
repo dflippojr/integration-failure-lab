@@ -1,0 +1,20 @@
+[
+  {"id":"failures-string","failures":"timeout","error":"Scenario failures-string: Unsupported failures \"timeout\"; expected an object"},
+  {"id":"failures-empty-string","failures":"","error":"Scenario failures-empty-string: Unsupported failures \"\"; expected an object"},
+  {"id":"failures-array","failures":["timeout",1],"error":"Scenario failures-array: Unsupported failures \"timeout,1\"; expected an object"},
+  {"id":"failures-empty-array","failures":[],"error":"Scenario failures-empty-array: Unsupported failures \"\"; expected an object"},
+  {"id":"failures-true","failures":true,"error":"Scenario failures-true: Unsupported failures \"true\"; expected an object"},
+  {"id":"failures-false","failures":false,"error":"Scenario failures-false: Unsupported failures \"false\"; expected an object"},
+  {"id":"failures-number","failures":3.5,"error":"Scenario failures-number: Unsupported failures \"3.5\"; expected an object"},
+  {"id":"failures-zero","failures":0,"error":"Scenario failures-zero: Unsupported failures \"0\"; expected an object"},
+  {"id":"safeguards-string","safeguards":"timeout","error":"Scenario safeguards-string: Unsupported safeguards \"timeout\"; expected an object"},
+  {"id":"safeguards-empty-string","safeguards":"","error":"Scenario safeguards-empty-string: Unsupported safeguards \"\"; expected an object"},
+  {"id":"safeguards-array","safeguards":["timeout",1],"error":"Scenario safeguards-array: Unsupported safeguards \"timeout,1\"; expected an object"},
+  {"id":"safeguards-empty-array","safeguards":[],"error":"Scenario safeguards-empty-array: Unsupported safeguards \"\"; expected an object"},
+  {"id":"safeguards-true","safeguards":true,"error":"Scenario safeguards-true: Unsupported safeguards \"true\"; expected an object"},
+  {"id":"safeguards-false","safeguards":false,"error":"Scenario safeguards-false: Unsupported safeguards \"false\"; expected an object"},
+  {"id":"safeguards-number","safeguards":3.5,"error":"Scenario safeguards-number: Unsupported safeguards \"3.5\"; expected an object"},
+  {"id":"safeguards-zero","safeguards":0,"error":"Scenario safeguards-zero: Unsupported safeguards \"0\"; expected an object"},
+  {"id":"both-sections","failures":"timeout","safeguards":"abc","error":"Scenario both-sections: Unsupported failures \"timeout\"; expected an object"},
+  {"id":"safeguards-before-event","failures":{"poison":{"event":"ClaimPayed"}},"safeguards":[],"error":"Scenario safeguards-before-event: Unsupported safeguards \"\"; expected an object"}
+]

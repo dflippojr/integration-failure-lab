@@ -238,9 +238,19 @@ test('a scenario that breaks two rules from different groups is refused for the 
     'Unsupported safeguards.backoff "bogus"; expected one of none, fixed, exponential');
   refuses({ id: 'x-retry-and-toggle', safeguards: { retryLimit: -1, idempotency: 'yes' } },
     'Unsupported safeguards.retryLimit "-1"; expected a whole number from 0 to 2147483647');
-  // Spreading [] adds no safeguards, so the event rule still decides (aFailureRefusalStillWinsWhenTheSafeguardsAreNotAnObject).
+  // The shape of a section is checked before any rule that reads it (aNonObjectSectionIsRefusedBeforeAnyFailureRule).
   refuses({ id: 'x-event-and-list-safeguards', failures: { poison: { event: 'ClaimPayed' } }, safeguards: [] },
-    'Unsupported failures.poison.event "ClaimPayed"; expected one of ClaimSubmitted, ClaimAccepted, ClaimPaid');
+    'Unsupported safeguards ""; expected an object');
+});
+
+test('a failures or safeguards section that is not an object is refused, not run with the defaults', () => {
+  refuses({ id: 'x', failures: 'timeout' }, 'Unsupported failures "timeout"; expected an object');
+  refuses({ id: 'x', safeguards: [] }, 'Unsupported safeguards ""; expected an object');
+  // Falsy values spread to nothing, so only the raw section shows they are there.
+  refuses({ id: 'x', failures: false }, 'Unsupported failures "false"; expected an object');
+  refuses({ id: 'x', safeguards: 0 }, 'Unsupported safeguards "0"; expected an object');
+  // Overrides replace safeguards, but they do not make a broken file valid.
+  assert.throws(() => run({ id: 'x', safeguards: 'abc' }, { idempotency: true }), { message: 'Scenario x: Unsupported safeguards "abc"; expected an object' });
 });
 
 test('overrides replace scenario safeguards (free-form mode)', () => {

@@ -1,9 +1,11 @@
 package dev.dflippojr.lab;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -142,5 +144,51 @@ class DifferentialRunnerTest {
                 "record", Map.of("status", "Paid", "paidCents", 12000L, "applied", List.of("E1", "E2", "E3")),
                 "dlq", List.of(), "dropped", List.of(), "buffered", List.of(),
                 "verdict", Map.of("ok", true, "visible", false, "problems", List.of())));
+    }
+
+    /** One table for both sides: test/differential.test.js checks the engine against this same file. */
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> nonObjectSections() {
+        return json.readValue(Path.of("../test/differential/non-object-sections.json").toFile(), List.class);
+    }
+
+    @Test
+    void everyNonObjectSectionIsRefusedWithTheTextTheEngineGives() throws Exception {
+        for (Map<String, Object> row : nonObjectSections()) {
+            String error = (String) row.get("error");
+            assertThatThrownBy(() -> Scenario.fromMap(row)).as((String) row.get("id"))
+                    .isInstanceOf(IllegalArgumentException.class).hasMessage(error);
+            assertThat(DifferentialRunner.outcome(runner, row)).as((String) row.get("id")).isEqualTo(Map.of("error", error));
+        }
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void aBatchWithNonObjectSectionsStillWritesEveryOtherOutcome() throws Exception {
+        List<Map<String, Object>> rows = nonObjectSections();
+        List<Map<String, Object>> combinations = new ArrayList<>(rows);
+        combinations.add(rows.size() / 2, Map.of("id", "healthy"));
+        Path in = dir.resolve("in.json");
+        Path out = dir.resolve("out.json");
+        json.writeValue(in.toFile(), combinations);
+
+        differential.runBatch(in, out, 1);
+
+        List<Map<String, Object>> outcomes = json.readValue(Files.readString(out), List.class);
+        assertThat(outcomes).extracting(o -> o.get("id")).isEqualTo(combinations.stream().map(c -> c.get("id")).toList());
+        for (Map<String, Object> row : rows) {
+            assertThat(outcomes.stream().filter(o -> row.get("id").equals(o.get("id"))).findFirst().orElseThrow().get("outcome"))
+                    .isEqualTo(Map.of("error", row.get("error")));
+        }
+        Map<String, Object> healthy = (Map<String, Object>) outcomes.get(rows.size() / 2).get("outcome");
+        assertThat(healthy).containsKeys("record", "verdict").doesNotContainKey("error");
+    }
+
+    @Test
+    void anyOtherFailureToReadACombinationBecomesItsErrorRatherThanEndingTheBatch() throws Exception {
+        // The engine ignores order, so this is not a refusal both sides share: Scenario.fromMap's cast fails on it.
+        Map<String, Object> outcome = DifferentialRunner.outcome(runner, Map.of("id", "order-text", "order", "first"));
+        assertThat(outcome).containsOnlyKeys("error");
+        assertThat((String) outcome.get("error")).startsWith("Scenario order-text could not be read: ");
     }
 }
