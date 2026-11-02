@@ -95,11 +95,12 @@ public record Scenario(String id, int order, String title, Failures failures, Sa
 
     @SuppressWarnings("unchecked")
     public static Scenario fromMap(Map<String, Object> json) {
-        Map<String, Object> f = (Map<String, Object>) section(json, "failures");
+        Object rawFailures = section(json, "failures");
         Object rawSafeguards = section(json, "safeguards");
-        String refused = refusal(f, rawSafeguards);
+        String refused = refusal(rawFailures, rawSafeguards);
         if (refused != null) throw refused(json.get("id"), refused);
 
+        Map<String, Object> f = (Map<String, Object>) rawFailures;
         Map<String, Object> timeout = (Map<String, Object>) f.get("timeout");
         Object attempts = timeout == null ? null : timeout.get("attempts");
         Set<Integer> attemptSet = attempts instanceof List<?> list
@@ -134,7 +135,15 @@ public record Scenario(String id, int order, String title, Failures failures, Sa
      * values already known to be valid.
      */
     @SuppressWarnings("unchecked")
-    private static String refusal(Map<String, Object> f, Object safeguards) {
+    private static String refusal(Object rawFailures, Object rawSafeguards) {
+        if (!(rawFailures instanceof Map)) {
+            return unsupported("failures", rawFailures, "an object");
+        }
+        if (!(rawSafeguards instanceof Map)) {
+            return unsupported("safeguards", rawSafeguards, "an object");
+        }
+        Map<String, Object> f = (Map<String, Object>) rawFailures;
+        Map<String, Object> g = (Map<String, Object>) rawSafeguards;
         for (String kind : FAILURE_KINDS) {
             Object failure = f.get(kind);
             if (failure != null && !(field(failure, "event") instanceof String event && EVENT_TYPES.contains(event))) {
@@ -156,8 +165,6 @@ public record Scenario(String id, int order, String title, Failures failures, Sa
         if (poisonEvent != null && poisonEvent.equals(field(f.get("schemaChange"), "event"))) {
             return "failures.poison and failures.schemaChange cannot target the same event (" + poisonEvent + ")";
         }
-        // Cast only now, so a failure refusal still wins over safeguards that are not an object, as before.
-        Map<String, Object> g = (Map<String, Object>) safeguards;
         // shown() would turn ["fixed"] into "fixed", so this checks the raw value.
         Object backoff = g.getOrDefault("backoff", "exponential");
         if (!(backoff instanceof String name && Safeguards.BACKOFFS.contains(name))) {

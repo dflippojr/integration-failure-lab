@@ -128,6 +128,18 @@ test('null failures and safeguards run with the defaults, as in the Java runner'
   });
 });
 
+// One table for both sides: DifferentialRunnerTest reads this file too, so the texts cannot drift apart.
+test('every non-object failures or safeguards value is the same refusal the Java runner gives', () => {
+  const rows = JSON.parse(readFileSync(new URL('./differential/non-object-sections.json', import.meta.url), 'utf8'));
+  for (const section of ['failures', 'safeguards']) {
+    const types = rows.filter(row => row.id.startsWith(`${section}-`)).map(row => (Array.isArray(row[section]) ? 'array' : typeof row[section]));
+    assert.deepEqual([...new Set(types)].sort(), ['array', 'boolean', 'number', 'string'], `${section} covers every non-object JSON type`);
+  }
+  for (const { error, ...combination } of rows) {
+    assert.deepEqual(engineOutcome(combination), { error }, combination.id);
+  }
+});
+
 test('compare separates agreement, owner-decided divergences, stale entries and unexplained mismatches', () => {
   const [a, b, c, d] = all;
   const ok = { record: { status: 'Paid' }, dlq: [] };

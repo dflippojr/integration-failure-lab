@@ -191,6 +191,8 @@ test('initial static UI graph excludes recordings and stays within the minified 
   // (option A, 2026-10-22, on the issue): 28,071 raw / 10,748 gzip-9 bytes.
   // Issue #134 (validate safeguard values on both sides) re-baselined it at the owner's decision (2026-10-26, on the
   // issue): 28,404 raw / 10,880 gzip-9 bytes.
+  // Issue #159 (refuse non-object failures and safeguards on both sides) re-baselined the gzip budget at the owner's
+  // decision (2026-11-02, on PR #181): 28,540 raw / 11,027 gzip-9 bytes on CI's Node 22.23.4.
   assert.ok(bytes.reduce((sum, b) => sum + b.length, 0) < 28600);
-  assert.ok(bytes.reduce((sum, b) => sum + gzipSync(b, { level: 9 }).length, 0) < 10950);
+  assert.ok(bytes.reduce((sum, b) => sum + gzipSync(b, { level: 9 }).length, 0) < 11100);
 });

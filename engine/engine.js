@@ -49,8 +49,13 @@ const attemptNumber = n => Number.isInteger(n) && n > 0 && n <= 2 ** 31 - 1;
 
 // Why the Java runner would refuse this scenario (Scenario.fromMap checks the same rules in the same order, with the
 // same text), or null. Values are shown as String() shows them, which Scenario.shown mirrors.
-function refusal(failures, guards) {
-  const unsupported = (path, value, expected) => `Unsupported ${path} "${String(value ?? null)}"; expected ${expected}`;
+function refusal(failures, safeguards, guards) {
+  // String() throws on an object whose own toString is not a function, so objects and lists are spelled out.
+  const shown = value => (Array.isArray(value) ? value.map(e => (e == null ? '' : shown(e))).join() : value && typeof value === 'object' ? '[object Object]' : String(value));
+  const unsupported = (path, value, expected) => `Unsupported ${path} "${shown(value ?? null)}"; expected ${expected}`;
+  for (const [path, section] of Object.entries({ failures, safeguards })) {
+    if (typeof section !== 'object' || Array.isArray(section)) return unsupported(path, section, 'an object');
+  }
   for (const kind of FAILURE_KINDS) {
     if (failures[kind] != null && !EVENT_TYPES.includes(failures[kind].event)) {
       return unsupported(`failures.${kind}.event`, failures[kind].event, `one of ${EVENT_TYPES.join(', ')}`);
@@ -81,8 +86,9 @@ function refusal(failures, guards) {
 
 export function run(scenario, overrides = {}) {
   const failures = scenario.failures ?? {};
-  const guards = { ...DEFAULT_SAFEGUARDS, ...scenario.safeguards, ...overrides };
-  const refused = refusal(failures, guards);
+  const safeguards = scenario.safeguards ?? {};
+  const guards = { ...DEFAULT_SAFEGUARDS, ...safeguards, ...overrides };
+  const refused = refusal(failures, safeguards, guards);
   if (refused) throw new Error(`Scenario ${scenario.id}: ${refused}`);
   const events = claimEvents();
   const byType = Object.fromEntries(events.map(e => [e.type, e]));
