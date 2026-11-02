@@ -5,15 +5,14 @@
 // Needs the runner jar: cd java && ./mvnw -B package -DskipTests
 //
 //   npm run recordings
-import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { runJar } from './java-runner.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const EXECUTED = join(root, 'executed');
-const JAR = join(root, 'java', 'target', 'integration-failure-lab-0.1.0-SNAPSHOT.jar');
 export const RERECORD = 'cd java && ./mvnw -B package -DskipTests && java -jar target/integration-failure-lab-0.1.0-SNAPSHOT.jar --lab.export-dir=../executed';
 
 // Keys sorted at every level, so a recording reads the same whatever order the runner wrote its keys in.
@@ -96,14 +95,9 @@ export function report(drift, freshDir, write = console.log) {
   return drift.length === 0;
 }
 
-// Runs the runner jar's export mode into outDir, from java/ so it finds ../scenarios.
+// Runs the runner jar's export mode into outDir.
 function exportWithJar(outDir) {
-  if (!existsSync(JAR)) throw new Error(`No runner jar at ${JAR}; build it with: cd java && ./mvnw -B package -DskipTests`);
-  const javaHome = process.env.JAVA_HOME;
-  const java = javaHome ? join(javaHome, 'bin', 'java') : 'java';
-  const result = spawnSync(java, ['-jar', JAR, `--lab.export-dir=${outDir}`], { cwd: join(root, 'java'), stdio: 'inherit' });
-  if (result.error) throw result.error;
-  if (result.status !== 0) throw new Error(`Java runner exited with ${result.status}`);
+  runJar([`--lab.export-dir=${outDir}`]);
 }
 
 // Re-records into a fresh temp directory, kept when anything drifted so the diff can be inspected; true when nothing did.

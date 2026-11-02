@@ -11,18 +11,17 @@
 //   npm run differential -- --scale <f>       Java speed as a fraction of the engine's virtual clock (default 0.25)
 //
 // Files go to java/target/differential/: combinations.json, engine-outcomes.json and java-outcomes.json.
-import { spawnSync } from 'node:child_process';
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { combinations } from '../test/differential/combos.mjs';
 import { engineOutcome, compare } from '../test/differential/outcome.mjs';
 import { TIMING } from '../engine/engine.js';
+import { runJar } from './java-runner.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const KNOWN_PATH = join(root, 'test', 'differential', 'known.json');
-const JAR = join(root, 'java', 'target', 'integration-failure-lab-0.1.0-SNAPSHOT.jar');
 const OUT_DIR = join(root, 'java', 'target', 'differential');
 export const MAX_KNOWN = 3;
 // The Java runner's defaults are not proportional to the engine's virtual clock (its replay comes 1.3 ack
@@ -92,19 +91,13 @@ export function parseOptions(args) {
 }
 
 // Runs the runner jar's batch mode: combinations in inFile, outcomes to outFile.
-function runJar(inFile, outFile, args) {
-  if (!existsSync(JAR)) throw new Error(`No runner jar at ${JAR}; build it with: cd java && ./mvnw -B package -DskipTests`);
-  const javaHome = process.env.JAVA_HOME;
-  const java = javaHome ? join(javaHome, 'bin', 'java') : 'java';
-  const result = spawnSync(java, ['-jar', JAR, `--lab.differential-in=${inFile}`, `--lab.differential-out=${outFile}`, ...args],
-    { cwd: join(root, 'java'), stdio: 'inherit' });
-  if (result.error) throw result.error;
-  if (result.status !== 0) throw new Error(`Java runner exited with ${result.status}`);
+function runBatch(inFile, outFile, args) {
+  runJar([`--lab.differential-in=${inFile}`, `--lab.differential-out=${outFile}`, ...args]);
 }
 
 // Runs the selected combinations on both sides and reports; true when nothing is unexplained or stale.
 export function differential({ only, workers = 4, scale = TIME_SCALE } = {},
-  { runJava = runJar, out = OUT_DIR, known = loadKnown(), write = console.log } = {}) {
+  { runJava = runBatch, out = OUT_DIR, known = loadKnown(), write = console.log } = {}) {
   const all = combinations();
   let selected = all;
   if (only) {
