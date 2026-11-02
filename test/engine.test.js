@@ -92,6 +92,17 @@ test('6a retries a poison message to the limit, then parks it for good', () => {
   assert.deepEqual(r.record.applied, ['E1', 'E2']);
 });
 
+test('a text paidAmount is still poison with schema validation on: retried to the limit, not rejected (docs/SCENARIOS.md)', () => {
+  // The poison check runs before the schema check in receive(), so 6a's message keeps its retries under validation.
+  const poison = byId('6a-poison-message');
+  const r = run({ ...poison, id: 'x3-poison-schema-validation', safeguards: { ...poison.safeguards, schemaValidation: true } });
+  assert.equal(r.dlq[0].attempts, 4);
+  assert.equal(r.dlq[0].reason, 'retry limit (3) reached');
+  assert.deepEqual(r.record.applied, ['E1', 'E2']);
+  const rejects = r.trace.filter(t => t.kind === 'reject' && t.eventId === 'E3').map(t => t.note);
+  assert.deepEqual(rejects, Array(4).fill('poison: paidAmount is text, cannot be parsed'));
+});
+
 test('6b replays the parked message with a fresh attempt count and drains the DLQ', () => {
   const r = run(byId('6b-poison-message-replay'));
   assert.deepEqual(r.dlq, []);
