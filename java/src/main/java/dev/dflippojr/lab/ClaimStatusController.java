@@ -1,6 +1,7 @@
 package dev.dflippojr.lab;
 
 import java.util.Map;
+import java.util.stream.Stream;
 
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -57,6 +58,10 @@ public class ClaimStatusController {
             // Its run has ended; no client is waiting for this reply.
             return ResponseEntity.status(409).build();
         }
+        if (!wellFormed(body)) {
+            // Only a manual request can get here. A 500 would mean "processing error, retry"; this won't heal.
+            return ResponseEntity.badRequest().build();
+        }
         Reply reply;
         owner.processingStarted();
         try {
@@ -105,6 +110,13 @@ public class ClaimStatusController {
         }
         trace.log("downstream", "ack", event, "attempt", attempt);
         return new Reply(200, 0);
+    }
+
+    /** The shape {@link #fromBody} needs. An absent payload is allowed; its values, and the ids, are not checked. */
+    private static boolean wellFormed(Map<String, Object> body) {
+        return Stream.of("eventId", "type", "status").allMatch(field -> body.get(field) instanceof String)
+                && body.get("seq") instanceof Integer
+                && body.getOrDefault("payload", Map.of()) instanceof Map;
     }
 
     @SuppressWarnings("unchecked")
