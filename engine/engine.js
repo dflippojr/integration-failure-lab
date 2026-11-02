@@ -51,8 +51,8 @@ const attemptNumber = n => Number.isInteger(n) && n > 0 && n <= 2 ** 31 - 1;
 // same text), or null. Values are shown as String() shows them, which Scenario.shown mirrors.
 function refusal(failures, safeguards, guards) {
   const unsupported = (path, value, expected) => `Unsupported ${path} "${String(value ?? null)}"; expected ${expected}`;
-  for (const [path, section] of [['failures', failures], ['safeguards', safeguards]]) {
-    if (section != null && (typeof section !== 'object' || Array.isArray(section))) return unsupported(path, section, 'an object');
+  for (const [path, section] of Object.entries({ failures, safeguards })) {
+    if (typeof section !== 'object' || Array.isArray(section)) return unsupported(path, section, 'an object');
   }
   for (const kind of FAILURE_KINDS) {
     if (failures[kind] != null && !EVENT_TYPES.includes(failures[kind].event)) {
@@ -84,8 +84,9 @@ function refusal(failures, safeguards, guards) {
 
 export function run(scenario, overrides = {}) {
   const failures = scenario.failures ?? {};
-  const guards = { ...DEFAULT_SAFEGUARDS, ...scenario.safeguards, ...overrides };
-  const refused = refusal(failures, scenario.safeguards, guards);
+  const safeguards = scenario.safeguards ?? {};
+  const guards = { ...DEFAULT_SAFEGUARDS, ...safeguards, ...overrides };
+  const refused = refusal(failures, safeguards, guards);
   if (refused) throw new Error(`Scenario ${scenario.id}: ${refused}`);
   const events = claimEvents();
   const byType = Object.fromEntries(events.map(e => [e.type, e]));
