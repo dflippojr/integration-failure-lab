@@ -249,6 +249,9 @@ test('a failures or safeguards section that is not an object is refused, not run
   // Falsy values spread to nothing, so only the raw section shows they are there.
   refuses({ id: 'x', failures: false }, 'Unsupported failures "false"; expected an object');
   refuses({ id: 'x', safeguards: 0 }, 'Unsupported safeguards "0"; expected an object');
+  // String() throws on an object whose own toString is not a function; Scenario.shown gives [object Object].
+  refuses({ id: 'x', failures: [{ toString: 0 }] }, 'Unsupported failures "[object Object]"; expected an object');
+  refuses({ id: 'x', safeguards: { backoff: { toString: 0 } } }, 'Unsupported safeguards.backoff "[object Object]"; expected one of none, fixed, exponential');
   // Overrides replace safeguards, but they do not make a broken file valid.
   assert.throws(() => run({ id: 'x', safeguards: 'abc' }, { idempotency: true }), { message: 'Scenario x: Unsupported safeguards "abc"; expected an object' });
 });

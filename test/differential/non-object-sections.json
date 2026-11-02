@@ -15,6 +15,8 @@
   {"id":"safeguards-false","safeguards":false,"error":"Scenario safeguards-false: Unsupported safeguards \"false\"; expected an object"},
   {"id":"safeguards-number","safeguards":3.5,"error":"Scenario safeguards-number: Unsupported safeguards \"3.5\"; expected an object"},
   {"id":"safeguards-zero","safeguards":0,"error":"Scenario safeguards-zero: Unsupported safeguards \"0\"; expected an object"},
+  {"id":"failures-array-of-tostring-object","failures":[{"toString":0}],"error":"Scenario failures-array-of-tostring-object: Unsupported failures \"[object Object]\"; expected an object"},
+  {"id":"safeguards-array-of-tostring-object","safeguards":[null,[{"toString":0}]],"error":"Scenario safeguards-array-of-tostring-object: Unsupported safeguards \",[object Object]\"; expected an object"},
   {"id":"both-sections","failures":"timeout","safeguards":"abc","error":"Scenario both-sections: Unsupported failures \"timeout\"; expected an object"},
   {"id":"safeguards-before-event","failures":{"poison":{"event":"ClaimPayed"}},"safeguards":[],"error":"Scenario safeguards-before-event: Unsupported safeguards \"\"; expected an object"}
 ]
