@@ -101,18 +101,21 @@ class DifferentialRunnerTest {
                 .isEqualTo(Map.of("error", "Scenario idempotency-text: Unsupported safeguards.idempotency \"false\"; expected true or false"));
         assertThat(DifferentialRunner.outcome(runner, Map.of("id", "retry-text", "safeguards", Map.of("retryLimit", "3"))))
                 .isEqualTo(Map.of("error", "Scenario retry-text: Unsupported safeguards.retryLimit \"3\";"
-                        + " expected a whole number from 0 to 2147483647"));
+                        + " expected a whole number from 0 to 5"));
         Map<String, Object> nullRetryLimit = new HashMap<>(); // Map.of takes no null value
         nullRetryLimit.put("retryLimit", null);
         assertThat(DifferentialRunner.outcome(runner, Map.of("id", "retry-null", "safeguards", nullRetryLimit)))
                 .isEqualTo(Map.of("error", "Scenario retry-null: Unsupported safeguards.retryLimit \"null\";"
-                        + " expected a whole number from 0 to 2147483647"));
+                        + " expected a whole number from 0 to 5"));
         assertThat(DifferentialRunner.outcome(runner, Map.of("id", "retry-huge", "safeguards", Map.of("retryLimit", 4294967297L))))
                 .isEqualTo(Map.of("error", "Scenario retry-huge: Unsupported safeguards.retryLimit \"4294967297\";"
-                        + " expected a whole number from 0 to 2147483647"));
+                        + " expected a whole number from 0 to 5"));
+        assertThat(DifferentialRunner.outcome(runner, Map.of("id", "retry-six", "safeguards", Map.of("retryLimit", 6))))
+                .isEqualTo(Map.of("error", "Scenario retry-six: Unsupported safeguards.retryLimit \"6\";"
+                        + " expected a whole number from 0 to 5"));
         assertThat(DifferentialRunner.outcome(runner, Map.of("id", "retry-fraction", "safeguards", Map.of("retryLimit", 0.0001))))
                 .isEqualTo(Map.of("error", "Scenario retry-fraction: Unsupported safeguards.retryLimit \"0.0001\";"
-                        + " expected a whole number from 0 to 2147483647"));
+                        + " expected a whole number from 0 to 5"));
         assertThat(DifferentialRunner.outcome(runner, Map.of("id", "idempotency-fraction", "safeguards", Map.of("idempotency", 0.0001))))
                 .isEqualTo(Map.of("error", "Scenario idempotency-fraction: Unsupported safeguards.idempotency \"0.0001\"; expected true or false"));
         assertThat(DifferentialRunner.outcome(runner, Map.of("id", "backoff-object", "safeguards", Map.of("backoff", Map.of()))))
@@ -131,6 +134,21 @@ class DifferentialRunnerTest {
                         + " expected \"all\" or a non-empty list of positive integers"));
         assertThat(DifferentialRunner.outcome(runner, Map.of("id", "idempotency-object", "safeguards", Map.of("idempotency", Map.of()))))
                 .isEqualTo(Map.of("error", "Scenario idempotency-object: Unsupported safeguards.idempotency \"[object Object]\"; expected true or false"));
+    }
+
+    /**
+     * The longest run the refusal accepts, at the runner's default timings: a timeout on every attempt, the longest
+     * backoff and a replay that does it all again. The differential's stratum runs the same combination at its own timings.
+     */
+    @Test
+    void theLongestRunTheRetryLimitAllowsFinishesInsideTheRunLimit() throws Exception {
+        assertThat(DifferentialRunner.outcome(runner, Map.of("id", "timeout-paid-all__retry5+replayAfterFix",
+                "failures", Map.of("timeout", Map.of("event", "ClaimPaid", "attempts", "all")),
+                "safeguards", Map.of("retryLimit", 5, "backoff", "exponential", "replayAfterFix", true)))).isEqualTo(Map.of(
+                "record", Map.of("status", "Accepted", "paidCents", 0L, "applied", List.of("E1", "E2")),
+                "dlq", List.of("E3"), "dropped", List.of(), "buffered", List.of(),
+                "verdict", Map.of("ok", false, "visible", true, "problems", List.of(
+                        "ClaimPaid never applied", "final status is Accepted, not Paid", "paid $0.00 instead of $120.00"))));
     }
 
     @Test

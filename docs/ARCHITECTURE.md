@@ -26,7 +26,7 @@ Let a visitor see why integration reliability is hard and what the standard fixe
 | Failure | Duplicate delivery (ack lost, message redelivered) | off |
 | Failure | Out-of-order delivery (delay one chosen event by 500 ms so it arrives after the next one) | off |
 | Failure | Schema change (producer renames `paidAmount` to `amountPaid`) | off |
-| Safeguard | Retry limit (0–5) and backoff (none / fixed / exponential) | 3, exponential |
+| Safeguard | Retry limit (0–5; both runtimes refuse a scenario above 5, the most the Java runner can finish inside its 30 s run limit) and backoff (none / fixed / exponential) | 3, exponential |
 | Safeguard | Idempotency (dedupe on `eventId`) | off |
 | Safeguard | Ordering (buffer when `seq` skips; drop stale `seq`) | off |
 | Safeguard | Schema validation at the consumer (reject, don't guess) | off |

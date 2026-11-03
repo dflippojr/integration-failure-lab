@@ -3,7 +3,7 @@
 // scenario (a full ID such as '2a-duplicate' or its chip prefix '2a', any case) opens Guided on that scenario
 // without running it, moving focus or saving the mode; an unknown or non-string value is ignored.
 // Uses the pure engine; everything runs client-side on a virtual clock.
-import { run, judge, suggestSafeguards, dollars, BACKOFFS, CLAIM_ID, DEFAULT_SAFEGUARDS, EVENT_TYPES, EXPECTED_RECORD, TIMING } from './engine.js';
+import { run, judge, suggestSafeguards, dollars, BACKOFFS, CLAIM_ID, DEFAULT_SAFEGUARDS, EVENT_TYPES, EXPECTED_RECORD, RETRY_LIMITS, TIMING } from './engine.js';
 import { SCENARIOS, RECORDING_IDS } from './scenarios.js';
 
 let recordings;
@@ -25,7 +25,6 @@ const FREE_LABELS = {
   retryLimit: 'Retries', backoff: 'Backoff', deadLetter: 'Dead-letter queue', idempotency: 'Idempotent consumer (dedupe on eventId)',
   ordering: 'Ordered consumer (buffer early events)', schemaValidation: 'Validate the payload schema',
 };
-const RETRY_LIMITS = [0, 1, 2, 3, 4, 5];
 const TIP_TEXT = {
   idempotency: 'turn on the idempotent consumer',
   ordering: 'turn on the ordered consumer',
