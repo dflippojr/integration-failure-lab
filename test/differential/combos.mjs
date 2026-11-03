@@ -1,15 +1,16 @@
 // Combinations for differential testing, covering Free-form and the poison failure and replayAfterFix that
 // Guided scenarios reach: each failure setting under each single safeguard change, each pair of failure kinds
-// under the defaults, every four-failure Free-form setting under two safeguard sets, and a seeded sample of
-// three-kind runs. Not every Free-form run: the form has 92,160. Pure and seeded, so every run sees the same list.
+// under the defaults, every four-failure Free-form setting under two safeguard sets, the longest runs around the
+// retry limit, and a seeded sample of three-kind runs. Not every Free-form run: the form has 92,160. Pure and
+// seeded, so every run sees the same list.
 // combinations() -> [{ id, failures, safeguards }], shaped like scenarios/*.json for engine.run() and the Java runner.
-import { BACKOFFS, DEFAULT_SAFEGUARDS, EVENT_TYPES, TIMING } from '../../engine/engine.js';
+import { BACKOFFS, DEFAULT_SAFEGUARDS, EVENT_TYPES, RETRY_LIMITS, TIMING } from '../../engine/engine.js';
 
 export { EVENT_TYPES };
-// The Free-form timeout and retry choices in ui/lab.js (TIMEOUT_ATTEMPTS, RETRY_LIMITS). Copied, not imported:
+// The Free-form timeout choices in ui/lab.js (TIMEOUT_ATTEMPTS). Copied, not imported:
 // ui/lab.js imports its neighbours as they sit in dist/, so Node cannot load it from here.
 const TIMEOUT_ATTEMPTS = { first: [1], two: [1, 2], all: 'all' };
-const RETRY_LIMITS = [0, 1, 2, 3, 4, 5];
+const MAX_RETRY_LIMIT = RETRY_LIMITS.at(-1);
 // The form's backoff order (ui/lab.js FORM_BACKOFFS); the seeded sample picks by index, so the order matters.
 const FORM_BACKOFFS = [...BACKOFFS].sort((a, b) => a.localeCompare(b));
 const TOGGLES = ['idempotency', 'ordering', 'schemaValidation', 'deadLetter', 'replayAfterFix'];
@@ -105,6 +106,15 @@ export function combinations({ seed = SEED, sample = RANDOM_SAMPLE } = {}) {
         for (const t of FOUR_FAILURE_SAFEGUARDS) add(combo([timeout, duplicate, reorder, rename], t));
       }
     }
+  }
+  // The longest runs around the retry limit (#160), read from the engine so they move with it. A timeout on every
+  // attempt, at every accepted limit and backoff, and at the limit with a replay that does it all again. One past the
+  // limit, both sides must refuse. Raise the limit past what the Java runner can finish, or on one side only, and these differ.
+  const everyAttempt = of('timeout').find(s => s.label === 'timeout-paid-all');
+  for (const backoff of FORM_BACKOFFS) {
+    for (const retryLimit of RETRY_LIMITS) add(combo([everyAttempt], { retryLimit, backoff }));
+    add(combo([everyAttempt], { retryLimit: MAX_RETRY_LIMIT, backoff, replayAfterFix: true }));
+    add(combo([everyAttempt], { retryLimit: MAX_RETRY_LIMIT + 1, backoff }));
   }
   // Seeded 3-way sample: three failure kinds on random targets, with every safeguard drawn at random.
   const random = prng(seed);

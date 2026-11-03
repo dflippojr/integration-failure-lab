@@ -24,6 +24,8 @@ public record Scenario(String id, int order, String title, Failures failures, Sa
     // The engine's TIMING.reorderDelayMs, in its virtual ms. This runner delays by lab.reorder-delay-ms, whatever the
     // scenario says, so it refuses any other value rather than run a different delay from the engine's.
     static final int REORDER_DELAY_MS = 500;
+    // The highest of the engine's RETRY_LIMITS: the most retries ScenarioRunner.scenarioLimit() can finish, so both sides refuse more.
+    static final int MAX_RETRY_LIMIT = 5;
     // The on/off safeguards and their defaults, in engine.js DEFAULT_SAFEGUARDS order, which is the order they are checked in.
     static final List<Map.Entry<String, Boolean>> TOGGLES = List.of(Map.entry("idempotency", false), Map.entry("ordering", false),
             Map.entry("schemaValidation", false), Map.entry("deadLetter", true), Map.entry("replayAfterFix", false));
@@ -170,10 +172,9 @@ public record Scenario(String id, int order, String title, Failures failures, Sa
         if (!(backoff instanceof String name && Safeguards.BACKOFFS.contains(name))) {
             return unsupported("safeguards.backoff", backoff, "one of " + String.join(", ", Safeguards.BACKOFFS));
         }
-        // intValue() would wrap 4294967297 to 1.
         Object retryLimit = g.getOrDefault("retryLimit", 3);
-        if (!(retryLimit instanceof Number n && (n.doubleValue() == 0 || positiveInteger(n)))) {
-            return unsupported("safeguards.retryLimit", retryLimit, "a whole number from 0 to " + Integer.MAX_VALUE);
+        if (!(retryLimit instanceof Number n && (n.doubleValue() == 0 || (positiveInteger(n) && n.doubleValue() <= MAX_RETRY_LIMIT)))) {
+            return unsupported("safeguards.retryLimit", retryLimit, "a whole number from 0 to " + MAX_RETRY_LIMIT);
         }
         for (Map.Entry<String, Boolean> toggle : TOGGLES) {
             Object value = g.getOrDefault(toggle.getKey(), toggle.getValue());

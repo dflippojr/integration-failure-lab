@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { combinations, failureSettings, safeguardToggles, EVENT_TYPES } from './differential/combos.mjs';
 import { engineOutcome, normalise, compare, canonical } from './differential/outcome.mjs';
 import { loadKnown, report, javaTimingArgs, parseOptions, differential, MAX_KNOWN } from '../scripts/differential.mjs';
-import { run, DEFAULT_SAFEGUARDS, TIMING } from '../engine/engine.js';
+import { run, BACKOFFS, DEFAULT_SAFEGUARDS, RETRY_LIMITS, TIMING } from '../engine/engine.js';
 
 const all = combinations();
 const byId = new Map(all.map(c => [c.id, c]));
@@ -29,7 +29,7 @@ test('the generator is reproducible', () => {
 test('the generator yields the recorded combinations', () => {
   const ids = JSON.parse(readFileSync(new URL('./differential/combination-ids.json', import.meta.url), 'utf8'));
   assert.deepEqual(all.map(c => c.id), ids);
-  assert.equal(createHash('sha256').update(canonical(all)).digest('hex'), 'bc24a38a7c7b441855c9cd56d5831bf96040dd939796a6ba4328a702738cefff');
+  assert.equal(createHash('sha256').update(canonical(all)).digest('hex'), '2747eb8d4f035faa73e4083c50b23b16794ab77ee8975dc910cb7f56c13360f9');
 });
 
 test('every (failure kind x target event) setting meets every single safeguard change', () => {
@@ -73,6 +73,26 @@ test('every four-failure Free-form setting runs under the defaults and with the 
   }
   assert.equal(settings, 81, '9 timeouts x 3 ack-loss events x 3 delayed events, with the rename on');
   assert.ok(byId.has('timeout-paid-all+ackloss-paid+reorder-paid+schema-paid__idempotency+ordering+schemaValidation'));
+});
+
+test('the longest runs around the retry limit are generated under every backoff, and one past it is refused', () => {
+  const failures = { timeout: { event: 'ClaimPaid', attempts: 'all' } };
+  const generated = safeguards => all.find(c => sameFailures(c, failures) && canonical(c.safeguards) === canonical({ ...DEFAULT_SAFEGUARDS, ...safeguards }));
+  assert.deepEqual(RETRY_LIMITS, [0, 1, 2, 3, 4, 5]);
+  const most = RETRY_LIMITS.at(-1);
+  for (const backoff of BACKOFFS) {
+    for (const retryLimit of RETRY_LIMITS) {
+      assert.deepEqual(engineOutcome(generated({ retryLimit, backoff })).dlq, ['E3'], `${retryLimit} retries, ${backoff}`);
+    }
+    assert.deepEqual(engineOutcome(generated({ retryLimit: most, backoff, replayAfterFix: true })).dlq, ['E3'], `replay, ${backoff}`);
+    assert.match(engineOutcome(generated({ retryLimit: most + 1, backoff })).error, /Unsupported safeguards\.retryLimit "6"; expected a whole number from 0 to 5$/);
+  }
+});
+
+test('every generated run the engine accepts has only finite trace times', () => {
+  const ran = all.filter(c => !engineOutcome(c).error);
+  assert.ok(ran.length > 700, `${ran.length} runs`);
+  for (const c of ran) assert.ok(run(c).trace.every(row => Number.isFinite(row.t)), c.id);
 });
 
 test('the engine outcome keeps ids and verdict and leaves timings out', () => {
