@@ -193,6 +193,7 @@ test('initial static UI graph excludes recordings and stays within the minified 
   // issue): 28,404 raw / 10,880 gzip-9 bytes.
   // Issue #159 (refuse non-object failures and safeguards on both sides) re-baselined the gzip budget at the owner's
   // decision (2026-11-02, on PR #181): 28,540 raw / 11,027 gzip-9 bytes on CI's Node 22.23.4.
+  // Issue #182 pinned that version in .nvmrc, which every setup-node step reads, so a Node release can't move it.
   assert.ok(bytes.reduce((sum, b) => sum + b.length, 0) < 28600);
   assert.ok(bytes.reduce((sum, b) => sum + gzipSync(b, { level: 9 }).length, 0) < 11100);
 });

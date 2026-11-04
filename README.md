@@ -103,7 +103,7 @@ Run the five test jobs locally with `npm run ci:local` (see [AGENTS.md](AGENTS.m
 GitHub Actions runs four workflows. `ci.yml` runs on pushes and pull requests, `sonar.yml` on pushes to `main` and on pull requests, `gate-guard-target.yml` on pull requests, and `review.yml` when a pull request opens and when it is dispatched by hand:
 
 - `.github/workflows/ci.yml`: five test jobs, a `gate-guard` job, a `gate` job and a `publish` job. `gate` is the one check to require, next to the `gate-guard` check from `gate-guard-target.yml` below.
-  - `engine`: `npm run lint` (ESLint recommended rules, `eslint.config.js`), then `npm run test:coverage` (Node 22), which is `npm test` with line and branch coverage floors.
+  - `engine`: `npm run lint` (ESLint recommended rules, `eslint.config.js`), then `npm run test:coverage` (on the Node version pinned in `.nvmrc`, which every `setup-node` step reads), which is `npm test` with line and branch coverage floors.
   - `java`: `./mvnw -B verify` in `java/` (Java 21), including a JaCoCo line-coverage floor.
   - `differential`: `npm run differential` against a freshly built runner jar (see [Differential testing](#differential-testing)).
   - `recordings`: `npm run recordings` against a freshly built runner jar (see [Recording drift](#recording-drift)).
