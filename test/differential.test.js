@@ -202,6 +202,16 @@ test('options are validated before anything reaches the JVM', () => {
   assert.throws(() => parseOptions(['--jar', 'x']), /Unknown option/);
 });
 
+// #179: a scale that rounds a positive Java timing to 0 would reach LabProperties as unset (its default) or collapse a send time.
+test('a scale that rounds a Java timing to 0 is refused, naming the timing and the smallest accepted scale', () => {
+  // The smallest positive timing is E2's send time, 100 ms: 100 x 0.005 = 0.5 rounds up to 1, while 100 x 0.00499 rounds to 0.
+  assert.equal(parseOptions(['--scale', '0.005']).scale, 0.005);
+  assert.throws(() => parseOptions(['--scale', '0.00499']),
+    /--scale 0\.00499 rounds lab\.send-at-ms \(100 ms\) to 0 in the Java runner; the smallest accepted scale is 0\.005/);
+  assert.throws(() => parseOptions(['--scale', '0.0004']),
+    /--scale 0\.0004 rounds lab\.backoff-base-ms \(1000 ms\) to 0 in the Java runner; the smallest accepted scale is 0\.005/);
+});
+
 describe('a differential run', () => {
   let out;
   before(() => { out = mkdtempSync(join(tmpdir(), 'ifl-differential-')); });

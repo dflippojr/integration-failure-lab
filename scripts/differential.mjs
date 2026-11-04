@@ -8,7 +8,7 @@
 //   npm run differential                      all combinations
 //   npm run differential -- --only <id> ...   just these (the repro line each mismatch prints)
 //   npm run differential -- --workers <1-4>   Java combinations run at a time in the one JVM (default 4)
-//   npm run differential -- --scale <f>       Java speed as a fraction of the engine's virtual clock (default 0.25)
+//   npm run differential -- --scale <f>       Java speed as a fraction of the engine's virtual clock (default 0.25, at least 0.005)
 //
 // Files go to java/target/differential/: combinations.json, engine-outcomes.json and java-outcomes.json.
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -30,17 +30,35 @@ export const MAX_KNOWN = 3;
 // semantics and only behaviour can differ. Loopback latency stands in for TIMING.latencyMs.
 export const TIME_SCALE = 0.25;
 
-export function javaTimingArgs(scale = TIME_SCALE) {
-  const ms = v => Math.round(v * scale);
+// The Java runner's timing properties, in the engine's milliseconds: each property with its values.
+function engineJavaTimings() {
   const reorder = new Set(combinations().flatMap(c => (c.failures.reorder ? [c.failures.reorder.delayMs] : [])));
   if (reorder.size !== 1) throw new Error(`The Java runner takes one reorder delay; combinations use ${[...reorder].join(', ')}`);
   return [
-    `--lab.timeout-ms=${ms(TIMING.timeoutMs)}`,
-    `--lab.backoff-base-ms=${ms(TIMING.backoffBaseMs)}`,
-    `--lab.send-at-ms=${TIMING.sendAt.map(ms).join(',')}`,
-    `--lab.reorder-delay-ms=${ms([...reorder][0])}`,
-    `--lab.replay-delay-ms=${ms(TIMING.replayAfterMs)}`,
+    ['lab.timeout-ms', [TIMING.timeoutMs]],
+    ['lab.backoff-base-ms', [TIMING.backoffBaseMs]],
+    ['lab.send-at-ms', TIMING.sendAt],
+    ['lab.reorder-delay-ms', [...reorder]],
+    ['lab.replay-delay-ms', [TIMING.replayAfterMs]],
   ];
+}
+
+export function javaTimingArgs(scale = TIME_SCALE) {
+  return engineJavaTimings().map(([name, values]) => `--${name}=${values.map(v => Math.round(v * scale)).join(',')}`);
+}
+
+// LabProperties reads a delay of 0 or less as unset and substitutes its default (#179), so a positive timing must still
+// round above 0 at this scale. Math.round gives 0 below 0.5, so the smallest accepted scale is 0.5 over the smallest
+// positive timing. A send time of 0 is E1's own send time, not a rounding result, so it is exempt.
+function checkScale(scale) {
+  const timings = engineJavaTimings();
+  for (const [name, values] of timings) {
+    const zeroed = values.find(v => v > 0 && Math.round(v * scale) === 0);
+    if (zeroed !== undefined) {
+      const smallest = 0.5 / Math.min(...timings.flatMap(([, all]) => all.filter(v => v > 0)));
+      throw new Error(`--scale ${scale} rounds ${name} (${zeroed} ms) to 0 in the Java runner; the smallest accepted scale is ${smallest}`);
+    }
+  }
 }
 
 // Owner-decided divergences: at most MAX_KNOWN, each with an issue link and the exact combination ids it
@@ -87,6 +105,7 @@ export function parseOptions(args) {
   if (!Number.isInteger(workers) || workers < 1 || workers > 4) throw new Error(`--workers must be 1-4, not ${values.workers}`);
   const scale = Number(values.scale);
   if (!(scale > 0 && scale <= 1)) throw new Error(`--scale must be a number in (0, 1], not ${values.scale}`);
+  checkScale(scale);
   return { only: values.only, workers, scale };
 }
 
