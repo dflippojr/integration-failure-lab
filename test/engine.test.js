@@ -92,6 +92,17 @@ test('6a retries a poison message to the limit, then parks it for good', () => {
   assert.deepEqual(r.record.applied, ['E1', 'E2']);
 });
 
+test('a text paidAmount is still poison with schema validation on: retried to the limit, not rejected (docs/SCENARIOS.md)', () => {
+  // The poison check runs before the schema check in receive(), so 6a's message keeps its retries under validation.
+  const poison = byId('6a-poison-message');
+  const r = run({ ...poison, id: 'x3-poison-schema-validation', safeguards: { ...poison.safeguards, schemaValidation: true } });
+  assert.equal(r.dlq[0].attempts, 4);
+  assert.equal(r.dlq[0].reason, 'retry limit (3) reached');
+  assert.deepEqual(r.record.applied, ['E1', 'E2']);
+  const rejects = r.trace.filter(t => t.kind === 'reject' && t.eventId === 'E3').map(t => t.note);
+  assert.deepEqual(rejects, Array(4).fill('poison: paidAmount is text, cannot be parsed'));
+});
+
 test('6b replays the parked message with a fresh attempt count and drains the DLQ', () => {
   const r = run(byId('6b-poison-message-replay'));
   assert.deepEqual(r.dlq, []);
@@ -195,8 +206,8 @@ test('an unsupported backoff is rejected when the scenario runs, even when nothi
   refuses({ id: 'x-backoff-list', safeguards: { backoff: ['fixed'] } }, 'Unsupported safeguards.backoff "fixed"; expected one of none, fixed, exponential');
 });
 
-test('a retry limit that is not a whole number from 0 to 2^31 - 1 is rejected when the scenario runs', () => {
-  const expected = 'expected a whole number from 0 to 2147483647';
+test('a retry limit that is not a whole number from 0 to 5 is rejected when the scenario runs', () => {
+  const expected = 'expected a whole number from 0 to 5';
   refuses({ id: 'x-retry-text', safeguards: { retryLimit: '3' } }, `Unsupported safeguards.retryLimit "3"; ${expected}`);
   refuses({ id: 'x-retry-null', safeguards: { retryLimit: null } }, `Unsupported safeguards.retryLimit "null"; ${expected}`);
   refuses({ id: 'x-retry-negative', safeguards: { retryLimit: -1 } }, `Unsupported safeguards.retryLimit "-1"; ${expected}`);
@@ -210,7 +221,29 @@ test('a retry limit that is not a whole number from 0 to 2^31 - 1 is rejected wh
   refuses({ id: 'x-retry-huge', safeguards: { retryLimit: 4294967297 } }, `Unsupported safeguards.retryLimit "4294967297"; ${expected}`);
   // Free-form overrides are checked too.
   assert.throws(() => run({ id: 'x-retry-override' }, { retryLimit: '5' }), { message: `Scenario x-retry-override: Unsupported safeguards.retryLimit "5"; ${expected}` });
-  assert.equal(run({ id: 'x-retry-max', safeguards: { retryLimit: 2 ** 31 - 1 } }).verdict.ok, true);
+  assert.equal(run({ id: 'x-retry-max', safeguards: { retryLimit: 5 } }).verdict.ok, true);
+});
+
+// #160: the Java runner cannot finish a run much past 5 retries, so neither side accepts one.
+test('a retry limit above 5 is refused, in the same place in the rule order', () => {
+  const expected = 'expected a whole number from 0 to 5';
+  for (const limit of [6, 7, 2000, 2 ** 31 - 1]) {
+    refuses({ id: 'x-retry-above', safeguards: { retryLimit: limit } }, `Unsupported safeguards.retryLimit "${limit}"; ${expected}`);
+  }
+  assert.throws(() => run({ id: 'x-retry-override' }, { retryLimit: 6 }), { message: `Scenario x-retry-override: Unsupported safeguards.retryLimit "6"; ${expected}` });
+  refuses({ id: 'x-same-event-and-six', failures: { poison: { event: 'ClaimPaid' }, schemaChange: { event: 'ClaimPaid' } }, safeguards: { retryLimit: 6 } },
+    'failures.poison and failures.schemaChange cannot target the same event (ClaimPaid)');
+  refuses({ id: 'x-backoff-and-six', safeguards: { backoff: 'bogus', retryLimit: 6 } }, 'Unsupported safeguards.backoff "bogus"; expected one of none, fixed, exponential');
+  refuses({ id: 'x-six-and-toggle', safeguards: { retryLimit: 6, idempotency: 'yes' } }, `Unsupported safeguards.retryLimit "6"; ${expected}`);
+});
+
+test('every accepted retry limit dead-letters a timeout on every attempt, under every backoff, with every trace time finite', () => {
+  for (const backoff of ['exponential', 'fixed', 'none']) for (const retryLimit of [0, 1, 2, 3, 4, 5]) for (const replayAfterFix of [false, true]) {
+    const r = run({ id: 'x', failures: { timeout: { event: 'ClaimPaid', attempts: 'all' } }, safeguards: { retryLimit, backoff, replayAfterFix } });
+    assert.deepEqual(r.dlq.map(e => e.eventId), ['E3']);
+    assert.equal(r.dlq[0].attempts, retryLimit + 1);
+    assert.ok(r.trace.every(row => Number.isFinite(row.t)), `${backoff}, ${retryLimit} retries`);
+  }
 });
 
 test('an on/off safeguard that is not true or false is rejected when the scenario runs, in DEFAULT_SAFEGUARDS order', () => {
@@ -221,7 +254,7 @@ test('an on/off safeguard that is not true or false is rejected when the scenari
   refuses({ id: 'x-dedupe-fraction', safeguards: { idempotency: 0.0001 } }, 'Unsupported safeguards.idempotency "0.0001"; expected true or false');
   refuses({ id: 'x-dlq-null', safeguards: { deadLetter: null } }, 'Unsupported safeguards.deadLetter "null"; expected true or false');
   // The retry limit comes first, then the on/off safeguards in DEFAULT_SAFEGUARDS order.
-  refuses({ id: 'x-several', safeguards: { replayAfterFix: 0, ordering: 'yes', retryLimit: '1' } }, 'Unsupported safeguards.retryLimit "1"; expected a whole number from 0 to 2147483647');
+  refuses({ id: 'x-several', safeguards: { replayAfterFix: 0, ordering: 'yes', retryLimit: '1' } }, 'Unsupported safeguards.retryLimit "1"; expected a whole number from 0 to 5');
   refuses({ id: 'x-several', safeguards: { replayAfterFix: 0, ordering: 'yes' } }, 'Unsupported safeguards.ordering "yes"; expected true or false');
 });
 
@@ -237,10 +270,23 @@ test('a scenario that breaks two rules from different groups is refused for the 
   refuses({ id: 'x-backoff-and-retry', safeguards: { backoff: 'bogus', retryLimit: -1 } },
     'Unsupported safeguards.backoff "bogus"; expected one of none, fixed, exponential');
   refuses({ id: 'x-retry-and-toggle', safeguards: { retryLimit: -1, idempotency: 'yes' } },
-    'Unsupported safeguards.retryLimit "-1"; expected a whole number from 0 to 2147483647');
-  // Spreading [] adds no safeguards, so the event rule still decides (aFailureRefusalStillWinsWhenTheSafeguardsAreNotAnObject).
+    'Unsupported safeguards.retryLimit "-1"; expected a whole number from 0 to 5');
+  // The shape of a section is checked before any rule that reads it (aNonObjectSectionIsRefusedBeforeAnyFailureRule).
   refuses({ id: 'x-event-and-list-safeguards', failures: { poison: { event: 'ClaimPayed' } }, safeguards: [] },
-    'Unsupported failures.poison.event "ClaimPayed"; expected one of ClaimSubmitted, ClaimAccepted, ClaimPaid');
+    'Unsupported safeguards ""; expected an object');
+});
+
+test('a failures or safeguards section that is not an object is refused, not run with the defaults', () => {
+  refuses({ id: 'x', failures: 'timeout' }, 'Unsupported failures "timeout"; expected an object');
+  refuses({ id: 'x', safeguards: [] }, 'Unsupported safeguards ""; expected an object');
+  // Falsy values spread to nothing, so only the raw section shows they are there.
+  refuses({ id: 'x', failures: false }, 'Unsupported failures "false"; expected an object');
+  refuses({ id: 'x', safeguards: 0 }, 'Unsupported safeguards "0"; expected an object');
+  // String() throws on an object whose own toString is not a function; Scenario.shown gives [object Object].
+  refuses({ id: 'x', failures: [{ toString: 0 }] }, 'Unsupported failures "[object Object]"; expected an object');
+  refuses({ id: 'x', safeguards: { backoff: { toString: 0 } } }, 'Unsupported safeguards.backoff "[object Object]"; expected one of none, fixed, exponential');
+  // Overrides replace safeguards, but they do not make a broken file valid.
+  assert.throws(() => run({ id: 'x', safeguards: 'abc' }, { idempotency: true }), { message: 'Scenario x: Unsupported safeguards "abc"; expected an object' });
 });
 
 test('overrides replace scenario safeguards (free-form mode)', () => {

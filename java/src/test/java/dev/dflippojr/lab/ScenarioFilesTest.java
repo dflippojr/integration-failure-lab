@@ -34,6 +34,16 @@ class ScenarioFilesTest {
     }
 
     @Test
+    void aScenarioWithNonObjectFailuresFailsToLoadNamingTheScenario() throws IOException {
+        Path scenarios = Files.createDirectories(scratch.resolve("scenarios"));
+        Files.writeString(scenarios.resolve("bad-shape.json"),
+                "{ \"id\": \"9-bad-shape\", \"order\": 99, \"title\": \"bad\", \"failures\": \"timeout\", \"safeguards\": {} }");
+        assertThatThrownBy(() -> files(scenarios).load())
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Scenario 9-bad-shape: Unsupported failures \"timeout\"; expected an object");
+    }
+
+    @Test
     void writeRefusesNamesThatLeaveTheExportDirectory() {
         Path export = scratch.resolve("export");
         ScenarioFiles files = files(scratch);
