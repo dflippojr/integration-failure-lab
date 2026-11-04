@@ -20,6 +20,10 @@ export const DEFAULT_SAFEGUARDS = Object.freeze({
   replayAfterFix: false,     // after the producer fix, replay each DLQ entry once, replayAfterMs after it was parked, with a fresh attempt count
 });
 
+// The retry limits a scenario may ask for, which Free-form offers. The Java runner gives a run 30 s of wall clock, so
+// both sides refuse what it could not finish (Scenario.MAX_RETRY_LIMIT).
+export const RETRY_LIMITS = Object.freeze([0, 1, 2, 3, 4, 5]);
+
 export const EVENT_TYPES = Object.freeze(['ClaimSubmitted', 'ClaimAccepted', 'ClaimPaid']);
 const FAILURE_KINDS = ['timeout', 'duplicate', 'reorder', 'schemaChange', 'poison'];
 export const BACKOFFS = Object.freeze(['none', 'fixed', 'exponential']); // Scenario.BACKOFFS order: the refusal text lists them
@@ -49,8 +53,13 @@ const attemptNumber = n => Number.isInteger(n) && n > 0 && n <= 2 ** 31 - 1;
 
 // Why the Java runner would refuse this scenario (Scenario.fromMap checks the same rules in the same order, with the
 // same text), or null. Values are shown as String() shows them, which Scenario.shown mirrors.
-function refusal(failures, guards) {
-  const unsupported = (path, value, expected) => `Unsupported ${path} "${String(value ?? null)}"; expected ${expected}`;
+function refusal(failures, safeguards, guards) {
+  // String() throws on an object whose own toString is not a function, so objects and lists are spelled out.
+  const shown = value => (Array.isArray(value) ? value.map(e => (e == null ? '' : shown(e))).join() : value && typeof value === 'object' ? '[object Object]' : String(value));
+  const unsupported = (path, value, expected) => `Unsupported ${path} "${shown(value ?? null)}"; expected ${expected}`;
+  for (const [path, section] of Object.entries({ failures, safeguards })) {
+    if (typeof section !== 'object' || Array.isArray(section)) return unsupported(path, section, 'an object');
+  }
   for (const kind of FAILURE_KINDS) {
     if (failures[kind] != null && !EVENT_TYPES.includes(failures[kind].event)) {
       return unsupported(`failures.${kind}.event`, failures[kind].event, `one of ${EVENT_TYPES.join(', ')}`);
@@ -69,10 +78,7 @@ function refusal(failures, guards) {
     return `failures.poison and failures.schemaChange cannot target the same event (${failures.poison.event})`;
   }
   if (!BACKOFFS.includes(guards.backoff)) return unsupported('safeguards.backoff', guards.backoff, `one of ${BACKOFFS.join(', ')}`);
-  // Java holds the retry limit as an int: 4294967297 would wrap to 1 there, and retry for ever here.
-  if (guards.retryLimit !== 0 && !attemptNumber(guards.retryLimit)) {
-    return unsupported('safeguards.retryLimit', guards.retryLimit, 'a whole number from 0 to 2147483647');
-  }
+  if (!RETRY_LIMITS.includes(guards.retryLimit)) return unsupported('safeguards.retryLimit', guards.retryLimit, 'a whole number from 0 to 5');
   for (const [name, initial] of Object.entries(DEFAULT_SAFEGUARDS)) {
     if (typeof initial === 'boolean' && typeof guards[name] !== 'boolean') return unsupported(`safeguards.${name}`, guards[name], 'true or false');
   }
@@ -81,8 +87,9 @@ function refusal(failures, guards) {
 
 export function run(scenario, overrides = {}) {
   const failures = scenario.failures ?? {};
-  const guards = { ...DEFAULT_SAFEGUARDS, ...scenario.safeguards, ...overrides };
-  const refused = refusal(failures, guards);
+  const safeguards = scenario.safeguards ?? {};
+  const guards = { ...DEFAULT_SAFEGUARDS, ...safeguards, ...overrides };
+  const refused = refusal(failures, safeguards, guards);
   if (refused) throw new Error(`Scenario ${scenario.id}: ${refused}`);
   const events = claimEvents();
   const byType = Object.fromEntries(events.map(e => [e.type, e]));

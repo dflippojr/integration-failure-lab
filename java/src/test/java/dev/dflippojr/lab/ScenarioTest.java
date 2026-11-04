@@ -120,7 +120,7 @@ class ScenarioTest {
                 .hasMessage("Scenario x-backoff-list: Unsupported safeguards.backoff \"fixed\"; expected one of none, fixed, exponential");
     }
 
-    private static final String RETRY_LIMIT = "expected a whole number from 0 to 2147483647";
+    private static final String RETRY_LIMIT = "expected a whole number from 0 to 5";
     private static final String ON_OFF = "expected true or false";
 
     private static Arguments refusedSafeguard(String id, String name, Object value, String message) {
@@ -139,6 +139,9 @@ class ScenarioTest {
                 refusedSafeguard("x-retry-tiny", "retryLimit", 0.0001, "Unsupported safeguards.retryLimit \"0.0001\"; " + RETRY_LIMIT),
                 refusedSafeguard("x-retry-tinier", "retryLimit", 1e-7, "Unsupported safeguards.retryLimit \"1e-7\"; " + RETRY_LIMIT),
                 refusedSafeguard("x-retry-vast", "retryLimit", 1.5e21, "Unsupported safeguards.retryLimit \"1.5e+21\"; " + RETRY_LIMIT),
+                // Above the most retries the runner can finish inside its run limit.
+                refusedSafeguard("x-retry-six", "retryLimit", 6, "Unsupported safeguards.retryLimit \"6\"; " + RETRY_LIMIT),
+                refusedSafeguard("x-retry-int-max", "retryLimit", Integer.MAX_VALUE, "Unsupported safeguards.retryLimit \"2147483647\"; " + RETRY_LIMIT),
                 // Past the int range: intValue() would wrap 4294967297 to 1 retry.
                 refusedSafeguard("x-retry-huge", "retryLimit", 4294967297L, "Unsupported safeguards.retryLimit \"4294967297\"; " + RETRY_LIMIT),
                 refusedSafeguard("x-idempotency-text", "idempotency", "false", "Unsupported safeguards.idempotency \"false\"; " + ON_OFF),
@@ -219,7 +222,13 @@ class ScenarioTest {
                 brokenTwice("x-backoff-and-retry", Map.of(), Map.of("backoff", "bogus", "retryLimit", -1),
                         "Unsupported safeguards.backoff \"bogus\"; expected one of none, fixed, exponential"),
                 brokenTwice("x-retry-and-toggle", Map.of(), Map.of("retryLimit", -1, "idempotency", "yes"),
-                        "Unsupported safeguards.retryLimit \"-1\"; " + RETRY_LIMIT));
+                        "Unsupported safeguards.retryLimit \"-1\"; " + RETRY_LIMIT),
+                brokenTwice("x-same-event-and-six", sameEvent, Map.of("retryLimit", 6),
+                        "failures.poison and failures.schemaChange cannot target the same event (ClaimPaid)"),
+                brokenTwice("x-backoff-and-six", Map.of(), Map.of("backoff", "bogus", "retryLimit", 6),
+                        "Unsupported safeguards.backoff \"bogus\"; expected one of none, fixed, exponential"),
+                brokenTwice("x-six-and-toggle", Map.of(), Map.of("retryLimit", 6, "idempotency", "yes"),
+                        "Unsupported safeguards.retryLimit \"6\"; " + RETRY_LIMIT));
     }
 
     @ParameterizedTest(name = "{0}")
@@ -229,19 +238,26 @@ class ScenarioTest {
     }
 
     @Test
-    void aFailureRefusalStillWinsWhenTheSafeguardsAreNotAnObject() {
-        // The engine spreads [] into no safeguards and refuses the event, so the failure rules run before the safeguards cast.
+    void aNonObjectSectionIsRefusedBeforeAnyFailureRule() {
+        // refusal() checks the shape of both sections first, as engine.js does, so the event rule never reads them.
         assertThatThrownBy(() -> Scenario.fromMap(Map.of("id", "x-event-and-list-safeguards",
                 "failures", Map.of("poison", Map.of("event", "ClaimPayed")), "safeguards", List.of())))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("Scenario x-event-and-list-safeguards: Unsupported failures.poison.event \"ClaimPayed\"; " + EVENTS);
+                .hasMessage("Scenario x-event-and-list-safeguards: Unsupported safeguards \"\"; expected an object");
     }
 
     @Test
-    void wholeNumberRetryLimitsUpToTheIntMaximumStillLoad() {
+    void nonObjectFailuresAreRefused() {
+        assertThatThrownBy(() -> Scenario.fromMap(Map.of("id", "x", "failures", "timeout")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageStartingWith("Scenario x: ");
+    }
+
+    @Test
+    void wholeNumberRetryLimitsUpToFiveStillLoad() {
         assertThat(Scenario.fromMap(Map.of("id", "ok", "safeguards", Map.of("retryLimit", 2.0))).safeguards().retryLimit()).isEqualTo(2);
-        assertThat(Scenario.fromMap(Map.of("id", "ok", "safeguards", Map.of("retryLimit", Integer.MAX_VALUE, "deadLetter", false)))
-                .safeguards()).isEqualTo(new Scenario.Safeguards(Integer.MAX_VALUE, "exponential", false, false, false, false, false));
+        assertThat(Scenario.fromMap(Map.of("id", "ok", "safeguards", Map.of("retryLimit", 5, "deadLetter", false)))
+                .safeguards()).isEqualTo(new Scenario.Safeguards(5, "exponential", false, false, false, false, false));
     }
 
     @Test

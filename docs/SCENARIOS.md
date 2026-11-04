@@ -21,6 +21,8 @@ The expected record for every scenario is: claim `C-1001`, status `Paid`, paid a
 
 Payload faults (`poison`, `schemaChange`) change what the producer sends. A replay after the fix (`replayAfterFix`) sends the original payload for either fault. A scenario that sets both on the same event is rejected when it loads (`run` in the engine, `Scenario.fromMap` in Java), because the two runtimes would otherwise compose them differently. Each dead-lettered message is replayed once, on its own timer, a fixed delay after it was parked (`TIMING.replayAfterMs` in the engine, `lab.replay-delay-ms` in Java); a replay that gives up again stays in the DLQ.
 
+Schema validation (5b) rejects a `ClaimPaid` with no numeric `paidAmount` as non-retryable. A wrongly typed amount, such as the text `"120.00"`, is still handled as poison (6a) when schema validation is on: the poison check runs before the schema check, so the message is retried to the retry limit and dead-lettered, the same as with validation off. Both runtimes keep this order (`receive()` in `engine/engine.js`, `ClaimStore.receive` in `java/`), and `test/engine.test.js` and `ScenarioRunnerTest` pin the outcome.
+
 ## Acceptance criteria for v1
 
 Scenario files are `scenarios/<id>-*.json`. Tests: `npm test` and `cd java && ./mvnw verify`.

@@ -131,6 +131,30 @@ class ScenarioRunnerTest {
         assertThat(kinds(result)).contains("replay");
     }
 
+    /**
+     * Parity with test/engine.test.js and docs/SCENARIOS.md: a text paidAmount is still poison with schema validation on,
+     * because the poison check runs before the schema check, so it is retried to the limit and dead-lettered.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void aTextAmountIsStillPoisonWithSchemaValidationOn() throws Exception {
+        Scenario scenario = Scenario.fromMap(Map.of(
+                "id", "x3-poison-schema-validation",
+                "failures", Map.of("poison", Map.of("event", "ClaimPaid")),
+                "safeguards", Map.of("schemaValidation", true)));
+        Map<String, Object> result = runner.run(scenario);
+        List<Map<String, Object>> dlq = (List<Map<String, Object>>) result.get("dlq");
+        assertThat(dlq).hasSize(1);
+        assertThat(dlq.getFirst()).containsEntry("eventId", "E3").containsEntry("attempts", 4)
+                .containsEntry("reason", "retry limit (3) reached");
+        Map<String, Object> record = (Map<String, Object>) result.get("record");
+        assertThat(record.get("applied")).isEqualTo(List.of("E1", "E2"));
+        List<Object> rejectNotes = ((List<Map<String, Object>>) result.get("trace")).stream()
+                .filter(r -> "E3".equals(r.get("eventId")) && "reject".equals(r.get("kind")))
+                .map(r -> r.get("note")).toList();
+        assertThat(rejectNotes).hasSize(4).containsOnly("poison: paidAmount is text, cannot be parsed");
+    }
+
     /** Parity with test/engine.test.js (#99): each DLQ entry is replayed replayDelayMs after its own parking. */
     @Test
     void twoDeadLetteredEventsAreEachReplayedAfterTheirOwnDelay() throws Exception {

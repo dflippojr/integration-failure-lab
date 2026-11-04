@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { combinations, failureSettings, safeguardToggles, EVENT_TYPES } from './differential/combos.mjs';
 import { engineOutcome, normalise, compare, canonical } from './differential/outcome.mjs';
 import { loadKnown, report, javaTimingArgs, parseOptions, differential, MAX_KNOWN } from '../scripts/differential.mjs';
-import { run, DEFAULT_SAFEGUARDS, TIMING } from '../engine/engine.js';
+import { run, BACKOFFS, DEFAULT_SAFEGUARDS, RETRY_LIMITS, TIMING } from '../engine/engine.js';
 
 const all = combinations();
 const byId = new Map(all.map(c => [c.id, c]));
@@ -29,7 +29,7 @@ test('the generator is reproducible', () => {
 test('the generator yields the recorded combinations', () => {
   const ids = JSON.parse(readFileSync(new URL('./differential/combination-ids.json', import.meta.url), 'utf8'));
   assert.deepEqual(all.map(c => c.id), ids);
-  assert.equal(createHash('sha256').update(canonical(all)).digest('hex'), 'bc24a38a7c7b441855c9cd56d5831bf96040dd939796a6ba4328a702738cefff');
+  assert.equal(createHash('sha256').update(canonical(all)).digest('hex'), '2747eb8d4f035faa73e4083c50b23b16794ab77ee8975dc910cb7f56c13360f9');
 });
 
 test('every (failure kind x target event) setting meets every single safeguard change', () => {
@@ -75,6 +75,26 @@ test('every four-failure Free-form setting runs under the defaults and with the 
   assert.ok(byId.has('timeout-paid-all+ackloss-paid+reorder-paid+schema-paid__idempotency+ordering+schemaValidation'));
 });
 
+test('the longest runs around the retry limit are generated under every backoff, and one past it is refused', () => {
+  const failures = { timeout: { event: 'ClaimPaid', attempts: 'all' } };
+  const generated = safeguards => all.find(c => sameFailures(c, failures) && canonical(c.safeguards) === canonical({ ...DEFAULT_SAFEGUARDS, ...safeguards }));
+  assert.deepEqual(RETRY_LIMITS, [0, 1, 2, 3, 4, 5]);
+  const most = RETRY_LIMITS.at(-1);
+  for (const backoff of BACKOFFS) {
+    for (const retryLimit of RETRY_LIMITS) {
+      assert.deepEqual(engineOutcome(generated({ retryLimit, backoff })).dlq, ['E3'], `${retryLimit} retries, ${backoff}`);
+    }
+    assert.deepEqual(engineOutcome(generated({ retryLimit: most, backoff, replayAfterFix: true })).dlq, ['E3'], `replay, ${backoff}`);
+    assert.match(engineOutcome(generated({ retryLimit: most + 1, backoff })).error, /Unsupported safeguards\.retryLimit "6"; expected a whole number from 0 to 5$/);
+  }
+});
+
+test('every generated run the engine accepts has only finite trace times', () => {
+  const ran = all.filter(c => !engineOutcome(c).error);
+  assert.ok(ran.length > 700, `${ran.length} runs`);
+  for (const c of ran) assert.ok(run(c).trace.every(row => Number.isFinite(row.t)), c.id);
+});
+
 test('the engine outcome keeps ids and verdict and leaves timings out', () => {
   const c = byId.get('poison-paid__defaults');
   assert.deepEqual(engineOutcome(c), {
@@ -102,10 +122,11 @@ test('the engine outcome of each refused scenario is the error the Java runner g
     'timeout-huge-attempt': [{ timeout: { event: 'ClaimPaid', attempts: [4294967297] } }, {},
       'Unsupported failures.timeout.attempts "4294967297"; expected "all" or a non-empty list of positive integers'],
     'idempotency-text': [{}, { idempotency: 'false' }, 'Unsupported safeguards.idempotency "false"; expected true or false'],
-    'retry-text': [{}, { retryLimit: '3' }, 'Unsupported safeguards.retryLimit "3"; expected a whole number from 0 to 2147483647'],
-    'retry-null': [{}, { retryLimit: null }, 'Unsupported safeguards.retryLimit "null"; expected a whole number from 0 to 2147483647'],
-    'retry-huge': [{}, { retryLimit: 4294967297 }, 'Unsupported safeguards.retryLimit "4294967297"; expected a whole number from 0 to 2147483647'],
-    'retry-fraction': [{}, { retryLimit: 0.0001 }, 'Unsupported safeguards.retryLimit "0.0001"; expected a whole number from 0 to 2147483647'],
+    'retry-text': [{}, { retryLimit: '3' }, 'Unsupported safeguards.retryLimit "3"; expected a whole number from 0 to 5'],
+    'retry-null': [{}, { retryLimit: null }, 'Unsupported safeguards.retryLimit "null"; expected a whole number from 0 to 5'],
+    'retry-huge': [{}, { retryLimit: 4294967297 }, 'Unsupported safeguards.retryLimit "4294967297"; expected a whole number from 0 to 5'],
+    'retry-six': [{}, { retryLimit: 6 }, 'Unsupported safeguards.retryLimit "6"; expected a whole number from 0 to 5'],
+    'retry-fraction': [{}, { retryLimit: 0.0001 }, 'Unsupported safeguards.retryLimit "0.0001"; expected a whole number from 0 to 5'],
     'idempotency-fraction': [{}, { idempotency: 0.0001 }, 'Unsupported safeguards.idempotency "0.0001"; expected true or false'],
     'backoff-object': [{}, { backoff: {} }, 'Unsupported safeguards.backoff "[object Object]"; expected one of none, fixed, exponential'],
     'backoff-null-element': [{}, { backoff: [null, 1] }, 'Unsupported safeguards.backoff ",1"; expected one of none, fixed, exponential'],
@@ -126,6 +147,18 @@ test('null failures and safeguards run with the defaults, as in the Java runner'
     dlq: [], dropped: [], buffered: [],
     verdict: { ok: true, visible: false, problems: [] },
   });
+});
+
+// One table for both sides: DifferentialRunnerTest reads this file too, so the texts cannot drift apart.
+test('every non-object failures or safeguards value is the same refusal the Java runner gives', () => {
+  const rows = JSON.parse(readFileSync(new URL('./differential/non-object-sections.json', import.meta.url), 'utf8'));
+  for (const section of ['failures', 'safeguards']) {
+    const types = rows.filter(row => row.id.startsWith(`${section}-`)).map(row => (Array.isArray(row[section]) ? 'array' : typeof row[section]));
+    assert.deepEqual([...new Set(types)].sort(), ['array', 'boolean', 'number', 'string'], `${section} covers every non-object JSON type`);
+  }
+  for (const { error, ...combination } of rows) {
+    assert.deepEqual(engineOutcome(combination), { error }, combination.id);
+  }
 });
 
 test('compare separates agreement, owner-decided divergences, stale entries and unexplained mismatches', () => {
