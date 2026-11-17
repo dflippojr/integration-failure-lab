@@ -207,7 +207,7 @@ class ScenarioTest {
         return Arguments.of(id, Map.of("id", id, "failures", failures, "safeguards", safeguards), "Scenario " + id + ": " + message);
     }
 
-    // A scenario that breaks two rules from different groups gets the message of the rule engine.js refusal() checks
+    // A scenario that breaks two rules from different groups gets the message of the rule engine/rules.js refusal() checks
     // first. The same cases as the precedence test in test/engine.test.js.
     static Stream<Arguments> rulesBrokenTwice() {
         Map<String, Object> sameEvent = Map.of("poison", Map.of("event", "ClaimPaid"), "schemaChange", Map.of("event", "ClaimPaid"));
@@ -239,7 +239,7 @@ class ScenarioTest {
 
     @Test
     void aNonObjectSectionIsRefusedBeforeAnyFailureRule() {
-        // refusal() checks the shape of both sections first, as engine.js does, so the event rule never reads them.
+        // refusal() checks the shape of both sections first, as engine/rules.js does, so the event rule never reads them.
         assertThatThrownBy(() -> Scenario.fromMap(Map.of("id", "x-event-and-list-safeguards",
                 "failures", Map.of("poison", Map.of("event", "ClaimPayed")), "safeguards", List.of())))
                 .isInstanceOf(IllegalArgumentException.class)

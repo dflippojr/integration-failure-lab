@@ -13,6 +13,7 @@ Try it on [dflippojr.dev](https://dflippojr.dev/#lab), where it's the site's pla
 - [Architecture](docs/ARCHITECTURE.md): components, event model, what's simulated vs. executed
 - [Scenarios](docs/SCENARIOS.md): the v1 scenario matrix with expected outcomes
 - `engine/engine.js`: pure, deterministic simulator: `run(scenario, overrides) -> { trace, record, dlq, dropped, buffered, stats, verdict }`
+- `engine/rules.js` (Node-only, not shipped): the scenario rules the Java runner enforces. `refusal(scenario, overrides)` gives the reason a scenario would be refused, and `checkedRun()` refuses before running. The tests, the differential and the build use it, so a scenario file that breaks a rule fails `npm run build`.
 - `scenarios/*.json`: the scenarios, shared by the engine and the Java/Spring runner in `java/`
 
 ## Develop
@@ -56,7 +57,7 @@ Mount with `mountLab(element, { headingLevel, scenario })`: the scenario title i
 
 Guided mode loads `executed.js` only when **Replay real run** is activated. Selecting Executed or restoring a saved `ifl-source=exec` preference does not fetch recordings. A small `RECORDING_IDS` manifest in generated `scenarios.js` comes from actual recording keys, so scenarios without recordings remain simulation-only. Pending loads share one import across mounts and disable repeated Run requests; changing mode, scenario, or source discards the old playback request. Successful imports stay cached. Loading and failures appear in the named **Replay status** region; failures offer **Retry replay**, and simulation remains usable.
 
-The build minifies each shipped file on its own with esbuild (pinned in `devDependencies`): no bundling, no source maps, and the same export names, so `executed.js` stays a separate lazy import. The readable sources are `engine/engine.js`, `ui/lab.js` and `ui/lab.css`. Output is byte-identical on Windows and Linux, apart from the commit in `build.json`.
+The build minifies each shipped file on its own with esbuild (pinned in `devDependencies`): no bundling, no source maps, and the same export names, so `executed.js` stays a separate lazy import. The readable sources are `engine/engine.js`, `ui/lab.js` and `ui/lab.css`; `engine/rules.js` is not shipped. Output is byte-identical on Windows and Linux, apart from the commit in `build.json`.
 
 The initial static JS graph is now `lab.js ? engine.js, scenarios.js`; `executed.js` is dynamically imported on demand. Generated `scenarios.js` carries only the six fields the browser reads (`id`, `title`, `summary`, `failures`, `safeguards`, `lesson`); the `expect` oracle and the `order` sort key stay in `scenarios/*.json`.
 
