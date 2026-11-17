@@ -48,8 +48,9 @@ Let a visitor see why integration reliability is hard and what the standard fixe
 
 ## Engine boundaries (so the simulator and the Java runner share scenarios)
 
-- `scenarios/*.json`: failure injections, safeguard settings, and the expected final record. Each needs a non-empty `lesson`: `scripts/build.mjs` refuses a scenario without one, because Guided mode shows it after every run.
-- `engine`: pure function `run(scenario, overrides) -> { trace, record, expected, dlq, dropped, buffered, stats, guards, verdict }`. No DOM access.
+- `scenarios/*.json`: failure injections, safeguard settings, and the expected final record. Each needs a non-empty `lesson`: `scripts/build.mjs` refuses a scenario without one, because Guided mode shows it after every run. It also refuses a scenario that breaks a rule in `engine/rules.js`, naming the scenario and the rule.
+- `engine/engine.js`: the engine runs. Pure function `run(scenario, overrides) -> { trace, record, expected, dlq, dropped, buffered, stats, guards, verdict }`. No DOM access, and no validation: it is shipped, and no browser path can give it a scenario that breaks a rule. Guided runs the shipped scenarios, which the build checks; Free-form builds its scenario from fixed select values, checkboxes and engine constants; the Free-form hint reruns it with the `SAFEGUARD_CHANGES` overrides, all valid. `test/ui.test.js` checks every Free-form control value and hint rerun against the rules.
+- `engine/rules.js`: the rules validate, in Node only (#196). `refusal(scenario, overrides)` returns why the Java runner would refuse a scenario (`Scenario.fromMap` checks the same rules in the same order, with the same text), or null; `checkedRun(scenario, overrides)` throws `Scenario <id>: <reason>` or returns `run()`. The build, the tests and the differential use it; `scripts/build.mjs` does not emit it, so it adds nothing to the shipped bundle.
 - `ui`: renders a trace. It can't tell whether the trace came from the simulator or from a recorded Java run.
 
 ## Visitor modes
@@ -62,8 +63,8 @@ From Guided, **Try this in Free-form** opens the current scenario in Free-form w
 
 - `test/engine.test.js`: all twelve scenarios against their `expect` blocks, determinism, and targeted trace assertions.
 - `test/ui.test.js`: accessibility structure of the UI (heading levels, labels, focusable trace region), final queue snapshots, deferred loading of recordings, and the Guided-to-Free-form pre-fill (every expressible scenario reproduces its guided run), and the Free-form comparison with the previous run.
-- `test/dist.test.js`: `dist/` matches `npm run build` output, every scenario has exactly one recording, and the initial static import graph excludes recordings and stays under the byte baseline.
-- `test/build.test.js`: `scripts/build.mjs` accepts only its fixed target names.
+- `test/dist.test.js`: `dist/` matches `npm run build` output, every scenario has exactly one recording, `dist/engine.js` carries no refusal text, and the initial static import graph excludes recordings and stays under the byte baseline.
+- `test/build.test.js`: `scripts/build.mjs` accepts only its fixed target names, and refuses a scenario without a lesson or one that breaks a rule.
 - `java/src/test/java/dev/dflippojr/lab/ScenarioRunnerTest.java`: runs all twelve scenarios over real HTTP against the same expectations and checks that independent deliveries proceed during a timeout.
 - `java/src/test/java/dev/dflippojr/lab/ScenarioRunnerSlowArrivalTest.java` and `ScenarioRunnerLateTimerTest.java`: a healthy E1 held at the store past E2's emission time, and E1's emission timer fired after E2's, each keep the scenario's order.
 - `java/src/test/java/dev/dflippojr/lab/ExportRunnerStallTest.java`: exports every scenario while the store holds the first E2 of each run for 400 ms, past the read timeout, and expects the committed `executed/` apart from wall-clock fields.

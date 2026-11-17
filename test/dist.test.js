@@ -3,7 +3,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -169,6 +169,13 @@ test('manifest follows recording keys when a future scenario has no recording', 
   assert.equal(ids.length, 11);
   assert.ok(!ids.includes(id));
   assert.ok(generated.includes(id), 'the unrecorded scenario remains available to simulate');
+});
+
+// #196: scenario validation lives in engine/rules.js, which runs in Node (tests, build, differential) and is not shipped.
+test('the shipped engine carries no scenario validation', () => {
+  const engine = readFileSync(join(root, 'dist', 'engine.js'), 'utf8');
+  for (const text of ['Unsupported ', 'cannot target the same event']) assert.ok(!engine.includes(text), text);
+  assert.ok(!existsSync(join(root, 'dist', 'rules.js')), 'rules.js is Node-only');
 });
 
 test('initial static UI graph excludes recordings and stays within the minified byte budget', () => {

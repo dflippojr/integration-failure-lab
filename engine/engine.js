@@ -1,5 +1,7 @@
 // Deterministic integration-failure simulator. Pure: no DOM, no timers, no randomness.
-// run(scenario, overrides?) -> { trace, record, expected, dlq, dropped, buffered, stats, verdict }
+// run(scenario, overrides?) -> { trace, record, expected, dlq, dropped, buffered, stats, guards, verdict }
+// run() does not validate: engine/rules.js (Node-only) holds the rules the Java runner enforces, and checkedRun() there
+// refuses a scenario that breaks one (#196).
 
 export const TIMING = Object.freeze({
   sendAt: [0, 100, 200], // producer emits the three events at these virtual ms
@@ -25,7 +27,6 @@ export const DEFAULT_SAFEGUARDS = Object.freeze({
 export const RETRY_LIMITS = Object.freeze([0, 1, 2, 3, 4, 5]);
 
 export const EVENT_TYPES = Object.freeze(['ClaimSubmitted', 'ClaimAccepted', 'ClaimPaid']);
-const FAILURE_KINDS = ['timeout', 'duplicate', 'reorder', 'schemaChange', 'poison'];
 export const BACKOFFS = Object.freeze(['none', 'fixed', 'exponential']); // Scenario.BACKOFFS order: the refusal text lists them
 
 export const CLAIM_ID = 'C-1001';
@@ -48,49 +49,10 @@ export function backoffMs(kind, retryNumber) {
   throw new Error(`Unknown backoff: ${kind}`);
 }
 
-// A whole number the Java runner can hold as an int attempt, from 1 to 2^31 - 1 (Scenario.positiveInteger).
-const attemptNumber = n => Number.isInteger(n) && n > 0 && n <= 2 ** 31 - 1;
-
-// Why the Java runner would refuse this scenario (Scenario.fromMap checks the same rules in the same order, with the
-// same text), or null. Values are shown as String() shows them, which Scenario.shown mirrors.
-function refusal(failures, safeguards, guards) {
-  // String() throws on an object whose own toString is not a function, so objects and lists are spelled out.
-  const shown = value => (Array.isArray(value) ? value.map(e => (e == null ? '' : shown(e))).join() : value && typeof value === 'object' ? '[object Object]' : String(value));
-  const unsupported = (path, value, expected) => `Unsupported ${path} "${shown(value ?? null)}"; expected ${expected}`;
-  for (const [path, section] of Object.entries({ failures, safeguards })) {
-    if (typeof section !== 'object' || Array.isArray(section)) return unsupported(path, section, 'an object');
-  }
-  for (const kind of FAILURE_KINDS) {
-    if (failures[kind] != null && !EVENT_TYPES.includes(failures[kind].event)) {
-      return unsupported(`failures.${kind}.event`, failures[kind].event, `one of ${EVENT_TYPES.join(', ')}`);
-    }
-  }
-  const attempts = failures.timeout?.attempts;
-  if (failures.timeout != null && attempts !== 'all'
-    && !(Array.isArray(attempts) && attempts.length && attempts.every(attemptNumber))) {
-    return unsupported('failures.timeout.attempts', attempts, '"all" or a non-empty list of positive integers');
-  }
-  if (failures.reorder != null && failures.reorder.delayMs !== TIMING.reorderDelayMs) {
-    return unsupported('failures.reorder.delayMs', failures.reorder.delayMs, `${TIMING.reorderDelayMs}, the one delay the Java runner takes`);
-  }
-  // Producer-side payload faults compose differently in each runtime, so a scenario may not stack them on one event.
-  if (failures.poison && failures.poison.event === failures.schemaChange?.event) {
-    return `failures.poison and failures.schemaChange cannot target the same event (${failures.poison.event})`;
-  }
-  if (!BACKOFFS.includes(guards.backoff)) return unsupported('safeguards.backoff', guards.backoff, `one of ${BACKOFFS.join(', ')}`);
-  if (!RETRY_LIMITS.includes(guards.retryLimit)) return unsupported('safeguards.retryLimit', guards.retryLimit, 'a whole number from 0 to 5');
-  for (const [name, initial] of Object.entries(DEFAULT_SAFEGUARDS)) {
-    if (typeof initial === 'boolean' && typeof guards[name] !== 'boolean') return unsupported(`safeguards.${name}`, guards[name], 'true or false');
-  }
-  return null;
-}
-
 export function run(scenario, overrides = {}) {
   const failures = scenario.failures ?? {};
   const safeguards = scenario.safeguards ?? {};
   const guards = { ...DEFAULT_SAFEGUARDS, ...safeguards, ...overrides };
-  const refused = refusal(failures, safeguards, guards);
-  if (refused) throw new Error(`Scenario ${scenario.id}: ${refused}`);
   const events = claimEvents();
   const byType = Object.fromEntries(events.map(e => [e.type, e]));
 

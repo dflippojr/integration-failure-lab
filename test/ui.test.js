@@ -30,7 +30,8 @@ class FakeElement {
 }
 
 let mountLab, SCENARIOS, EXECUTED, RECORDING_IDS, describe, toFormValues, formScenario;
-import { run, judge, DEFAULT_SAFEGUARDS } from '../engine/engine.js';
+import { run, judge, DEFAULT_SAFEGUARDS, SAFEGUARD_CHANGES } from '../engine/engine.js';
+import { refusal } from '../engine/rules.js';
 import { failureSettings, safeguardToggles } from './differential/combos.mjs';
 import { canonical } from './differential/outcome.mjs';
 before(async () => {
@@ -506,7 +507,11 @@ test('the differential generator covers every Free-form control value', () => {
       for (const on of [true, false]) {
         const values = { ...FREE_FORM_DEFAULTS, ...Object.fromEntries(checkboxes.map(n => [n, on ? 'on' : null])),
           [select.getAttribute('name')]: option.getAttribute('value') };
-        const { failures, safeguards } = formScenario(name => values[name] ?? null);
+        const scenario = formScenario(name => values[name] ?? null);
+        const { failures, safeguards } = scenario;
+        // #196: the shipped run() does not validate, so every Free-form run, and every hint rerun of it, must pass the rules.
+        assert.equal(refusal(scenario), null, JSON.stringify(scenario));
+        for (const { safeguard, value } of SAFEGUARD_CHANGES) assert.equal(refusal(scenario, { [safeguard]: value }), null, safeguard);
         for (const entry of Object.entries(failures)) assert.ok(settings.includes(canonical(Object.fromEntries([entry]))), JSON.stringify(entry));
         for (const entry of Object.entries(safeguards)) assert.ok(safeguardValues.includes(canonical(entry)), JSON.stringify(entry));
         checked++;

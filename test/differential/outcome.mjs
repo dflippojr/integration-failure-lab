@@ -1,7 +1,7 @@
 // The normalised outcome both sides of the differential test produce, and the diff between them.
 // Timings are left out: the engine runs on a virtual clock and the Java runner on wall-clock ms, so only
 // what a run ends with is compared. DifferentialRunner.java writes the same shape.
-import { run } from '../../engine/engine.js';
+import { checkedRun } from '../../engine/rules.js';
 
 const ids = entries => entries.map(e => e.eventId);
 
@@ -18,7 +18,7 @@ export function normalise({ record, dlq, dropped, buffered, verdict }) {
 
 export function engineOutcome(combination) {
   try {
-    return normalise(run(combination));
+    return normalise(checkedRun(combination));
   } catch (error) {
     return { error: error.message };
   }

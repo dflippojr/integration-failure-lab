@@ -38,6 +38,30 @@ test('build refuses a scenario whose lesson is missing or blank, since Guided mo
   }
 });
 
+// #196: the shipped engine no longer validates, so a scenario file the Java runner would refuse must not ship.
+test('build refuses a scenario that breaks a rule, naming the scenario and the rule, and writes no scenarios.js', () => {
+  const file = join(lab, 'scenarios', 'zz-bad-rule.json');
+  const scenario = { id: 'zz-bad-rule', title: 'Bad rule', summary: 'Fixture.', order: 99, lesson: 'A lesson.', failures: {} };
+  try {
+    writeFileSync(file, JSON.stringify({ ...scenario, safeguards: { retryLimit: 9 } }));
+    const run = node('build.mjs', 'dist');
+    assert.equal(run.status, 1);
+    assert.match(run.stderr, /Scenario zz-bad-rule: Unsupported safeguards\.retryLimit "9"; expected a whole number from 0 to 5/);
+    assert.equal(existsSync(join(lab, 'dist', 'scenarios.js')), false);
+  } finally {
+    rmSync(file, { force: true });
+    rmSync(join(lab, 'dist'), { recursive: true, force: true });
+  }
+});
+
+test('browserScenarios refuses a scenario the Java runner would refuse, with the engine rule text', () => {
+  const scenario = { id: 'zz', title: 'T', summary: 'S', lesson: 'A lesson.' };
+  assert.throws(() => browserScenarios([{ ...scenario, failures: { poison: { event: 'ClaimPaid' }, schemaChange: { event: 'ClaimPaid' } } }]),
+    { message: 'Scenario zz: failures.poison and failures.schemaChange cannot target the same event (ClaimPaid)' });
+  assert.throws(() => browserScenarios([{ ...scenario, safeguards: [] }]), { message: 'Scenario zz: Unsupported safeguards ""; expected an object' });
+  assert.equal(browserScenarios([{ ...scenario, failures: {}, safeguards: { retryLimit: 5 } }]).length, 1);
+});
+
 test('browserScenarios keeps only the browser fields, and refuses a scenario whose lesson is missing or blank', () => {
   const scenario = { id: 'zz', title: 'T', summary: 'S', order: 1, failures: {}, safeguards: {}, expect: {}, lesson: 'A lesson.' };
   assert.deepEqual(browserScenarios([scenario]), [{ id: 'zz', title: 'T', summary: 'S', failures: {}, safeguards: {}, lesson: 'A lesson.' }]);

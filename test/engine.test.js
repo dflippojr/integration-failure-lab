@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { run, backoffMs, judge, suggestSafeguards, SAFEGUARD_CHANGES, EXPECTED_RECORD, TIMING } from '../engine/engine.js';
+import { checkedRun, refusal } from '../engine/rules.js';
 
 const dir = new URL('../scenarios/', import.meta.url);
 const scenarios = readdirSync(dir)
@@ -163,13 +164,13 @@ test('per-entry replay keeps the DLQ in parking order when both replays time out
 
 test('poison and a schema change on the same event are rejected when the scenario runs', () => {
   const scenario = { id: 'x2-poison-schema', failures: { poison: { event: 'ClaimPaid' }, schemaChange: { event: 'ClaimPaid' } } };
-  assert.throws(() => run(scenario), {
+  assert.throws(() => checkedRun(scenario), {
     message: 'Scenario x2-poison-schema: failures.poison and failures.schemaChange cannot target the same event (ClaimPaid)',
   });
 });
 
 // Each refusal is checked before anything is scheduled, with the message Scenario.fromMap gives (ScenarioTest).
-const refuses = (scenario, message) => assert.throws(() => run(scenario), { message: `Scenario ${scenario.id}: ${message}` });
+const refuses = (scenario, message) => assert.throws(() => checkedRun(scenario), { message: `Scenario ${scenario.id}: ${message}` });
 
 test('a failure that targets an unknown event type is rejected when the scenario runs', () => {
   const expected = 'expected one of ClaimSubmitted, ClaimAccepted, ClaimPaid';
@@ -195,7 +196,7 @@ test('a reorder delay other than 500 ms, including a missing one, is rejected wh
   const expected = 'expected 500, the one delay the Java runner takes';
   refuses({ id: 'x-delay-50', failures: { reorder: { event: 'ClaimAccepted', delayMs: 50 } } }, `Unsupported failures.reorder.delayMs "50"; ${expected}`);
   refuses({ id: 'x-delay-missing', failures: { reorder: { event: 'ClaimAccepted' } } }, `Unsupported failures.reorder.delayMs "null"; ${expected}`);
-  assert.equal(run({ id: 'x-delay-500', failures: { reorder: { event: 'ClaimAccepted', delayMs: TIMING.reorderDelayMs } } }).verdict.ok, false);
+  assert.equal(checkedRun({ id: 'x-delay-500', failures: { reorder: { event: 'ClaimAccepted', delayMs: TIMING.reorderDelayMs } } }).verdict.ok, false);
 });
 
 test('an unsupported backoff is rejected when the scenario runs, even when nothing retries', () => {
@@ -220,8 +221,8 @@ test('a retry limit that is not a whole number from 0 to 5 is rejected when the 
   // would retry about 4.3 billion times.
   refuses({ id: 'x-retry-huge', safeguards: { retryLimit: 4294967297 } }, `Unsupported safeguards.retryLimit "4294967297"; ${expected}`);
   // Free-form overrides are checked too.
-  assert.throws(() => run({ id: 'x-retry-override' }, { retryLimit: '5' }), { message: `Scenario x-retry-override: Unsupported safeguards.retryLimit "5"; ${expected}` });
-  assert.equal(run({ id: 'x-retry-max', safeguards: { retryLimit: 5 } }).verdict.ok, true);
+  assert.throws(() => checkedRun({ id: 'x-retry-override' }, { retryLimit: '5' }), { message: `Scenario x-retry-override: Unsupported safeguards.retryLimit "5"; ${expected}` });
+  assert.equal(checkedRun({ id: 'x-retry-max', safeguards: { retryLimit: 5 } }).verdict.ok, true);
 });
 
 // #160: the Java runner cannot finish a run much past 5 retries, so neither side accepts one.
@@ -230,7 +231,7 @@ test('a retry limit above 5 is refused, in the same place in the rule order', ()
   for (const limit of [6, 7, 2000, 2 ** 31 - 1]) {
     refuses({ id: 'x-retry-above', safeguards: { retryLimit: limit } }, `Unsupported safeguards.retryLimit "${limit}"; ${expected}`);
   }
-  assert.throws(() => run({ id: 'x-retry-override' }, { retryLimit: 6 }), { message: `Scenario x-retry-override: Unsupported safeguards.retryLimit "6"; ${expected}` });
+  assert.throws(() => checkedRun({ id: 'x-retry-override' }, { retryLimit: 6 }), { message: `Scenario x-retry-override: Unsupported safeguards.retryLimit "6"; ${expected}` });
   refuses({ id: 'x-same-event-and-six', failures: { poison: { event: 'ClaimPaid' }, schemaChange: { event: 'ClaimPaid' } }, safeguards: { retryLimit: 6 } },
     'failures.poison and failures.schemaChange cannot target the same event (ClaimPaid)');
   refuses({ id: 'x-backoff-and-six', safeguards: { backoff: 'bogus', retryLimit: 6 } }, 'Unsupported safeguards.backoff "bogus"; expected one of none, fixed, exponential');
@@ -276,6 +277,23 @@ test('a scenario that breaks two rules from different groups is refused for the 
     'Unsupported safeguards ""; expected an object');
 });
 
+// #196: run() ships without validation, so every input a browser can give it must pass the rules: the shipped
+// scenarios (Guided, and the Free-form hint's base run) and each safeguard change the hint reruns them with.
+test('every shipped scenario, and each safeguard change suggestSafeguards tries on it, passes the rules', () => {
+  for (const s of scenarios) {
+    assert.equal(refusal(s), null, s.id);
+    for (const { safeguard, value } of SAFEGUARD_CHANGES) assert.equal(refusal(s, { [safeguard]: value }), null, `${s.id} ${safeguard}`);
+  }
+});
+
+test('run() itself no longer validates; checkedRun() refuses what run() would accept', () => {
+  const scenario = { id: 'x-retry-nine', safeguards: { retryLimit: 9 } };
+  assert.equal(run(scenario).verdict.ok, true);
+  assert.equal(refusal(scenario), 'Unsupported safeguards.retryLimit "9"; expected a whole number from 0 to 5');
+  refuses(scenario, 'Unsupported safeguards.retryLimit "9"; expected a whole number from 0 to 5');
+  assert.deepEqual(checkedRun(byId('2a-duplicate'), { idempotency: true }), run(byId('2a-duplicate'), { idempotency: true }));
+});
+
 test('a failures or safeguards section that is not an object is refused, not run with the defaults', () => {
   refuses({ id: 'x', failures: 'timeout' }, 'Unsupported failures "timeout"; expected an object');
   refuses({ id: 'x', safeguards: [] }, 'Unsupported safeguards ""; expected an object');
@@ -286,7 +304,7 @@ test('a failures or safeguards section that is not an object is refused, not run
   refuses({ id: 'x', failures: [{ toString: 0 }] }, 'Unsupported failures "[object Object]"; expected an object');
   refuses({ id: 'x', safeguards: { backoff: { toString: 0 } } }, 'Unsupported safeguards.backoff "[object Object]"; expected one of none, fixed, exponential');
   // Overrides replace safeguards, but they do not make a broken file valid.
-  assert.throws(() => run({ id: 'x', safeguards: 'abc' }, { idempotency: true }), { message: 'Scenario x: Unsupported safeguards "abc"; expected an object' });
+  assert.throws(() => checkedRun({ id: 'x', safeguards: 'abc' }, { idempotency: true }), { message: 'Scenario x: Unsupported safeguards "abc"; expected an object' });
 });
 
 test('overrides replace scenario safeguards (free-form mode)', () => {

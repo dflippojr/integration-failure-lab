@@ -132,7 +132,7 @@ public record Scenario(String id, int order, String title, Failures failures, Sa
     }
 
     /**
-     * Why the engine would refuse this scenario, or null: engine.js refusal() checks the same rules in the same order,
+     * Why the engine would refuse this scenario, or null: engine/rules.js refusal() checks the same rules in the same order,
      * with the same text. Every rule checks the raw JSON value, as the engine does, so {@link #fromMap} only parses
      * values already known to be valid.
      */
@@ -203,7 +203,7 @@ public record Scenario(String id, int order, String title, Failures failures, Sa
         return failure instanceof Map<?, ?> m ? m.get(name) : null;
     }
 
-    // engine.js attemptNumber(): a whole number from 1 to Integer.MAX_VALUE, for the numbers Jackson parses (2.0 is a
+    // engine/rules.js attemptNumber(): a whole number from 1 to Integer.MAX_VALUE, for the numbers Jackson parses (2.0 is a
     // whole number there too). The bound keeps intValue() from wrapping 4294967297 to attempt 1.
     private static boolean positiveInteger(Object n) {
         return n instanceof Number num && Double.isFinite(num.doubleValue()) && num.doubleValue() > 0
