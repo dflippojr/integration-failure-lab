@@ -7,7 +7,8 @@ import { checkedRun } from '../../engine/rules.js';
 
 const ids = entries => entries.map(e => e.eventId);
 
-// { record, dlq, dropped, buffered } with event ids only, or { error } when the scenario is refused.
+// { record, dlq, dropped, buffered } with event ids only. engineOutcome gives { refused: <rule id> } instead when the
+// scenario breaks a rule, and { error } when the run itself throws.
 export function normalise({ record, dlq, dropped, buffered }) {
   return {
     record: { status: record.status, paidCents: record.paidCents, applied: [...record.applied] },
@@ -17,11 +18,13 @@ export function normalise({ record, dlq, dropped, buffered }) {
   };
 }
 
+// A refusal compares by rule (#198): both runtimes check the same rules in the same order, so they must name the same
+// first broken rule, while each words its reason its own way.
 export function engineOutcome(combination) {
   try {
     return normalise(checkedRun(combination));
   } catch (error) {
-    return { error: error.message };
+    return error.rule ? { refused: error.rule } : { error: error.message };
   }
 }
 

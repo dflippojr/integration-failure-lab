@@ -3,9 +3,6 @@ package dev.dflippojr.lab;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import java.math.BigDecimal;
-import java.math.BigInteger;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -47,210 +44,95 @@ class ScenarioTest {
                 "id", "x2-poison-schema",
                 "failures", Map.of("poison", Map.of("event", "ClaimPaid"), "schemaChange", Map.of("event", "ClaimPaid")));
         assertThatThrownBy(() -> Scenario.fromMap(json))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("Scenario x2-poison-schema: failures.poison and failures.schemaChange cannot target the same event (ClaimPaid)");
+                .isInstanceOf(Scenario.Refused.class)
+                .hasMessage("Scenario x2-poison-schema: failures.poison and failures.schemaChange cannot target the same event (ClaimPaid)")
+                .extracting(e -> ((Scenario.Refused) e).rule()).isEqualTo("failures.poison+schemaChange");
     }
 
     private static final String EVENTS = "expected one of ClaimSubmitted, ClaimAccepted, ClaimPaid";
     private static final String ATTEMPTS = "expected \"all\" or a non-empty list of positive integers";
     private static final String DELAY = "expected 500, the one delay the Java runner takes";
-
-    private static Arguments refused(String id, Map<String, Object> failures, String message) {
-        return Arguments.of(id, Map.of("id", id, "failures", failures), "Scenario " + id + ": " + message);
-    }
-
-    // The same cases and messages as the refusal tests in test/engine.test.js, so both sides refuse alike.
-    static Stream<Arguments> unknownEvents() {
-        Map<String, Object> noEvent = new HashMap<>();
-        return Stream.of(
-                refused("x-poison-typo", Map.of("poison", Map.of("event", "ClaimPayed")), "Unsupported failures.poison.event \"ClaimPayed\"; " + EVENTS),
-                refused("x-timeout-typo", Map.of("timeout", Map.of("event", "ClaimPayed", "attempts", "all")), "Unsupported failures.timeout.event \"ClaimPayed\"; " + EVENTS),
-                refused("x-duplicate-none", Map.of("duplicate", noEvent), "Unsupported failures.duplicate.event \"null\"; " + EVENTS),
-                refused("x-reorder-typo", Map.of("reorder", Map.of("event", "claimAccepted", "delayMs", 500)), "Unsupported failures.reorder.event \"claimAccepted\"; " + EVENTS),
-                refused("x-schema-number", Map.of("schemaChange", Map.of("event", 3)), "Unsupported failures.schemaChange.event \"3\"; " + EVENTS));
-    }
-
-    static Stream<Arguments> invalidTimeoutAttempts() {
-        return Stream.of(
-                refused("x-attempts-missing", Map.of("timeout", Map.of("event", "ClaimPaid")), "Unsupported failures.timeout.attempts \"null\"; " + ATTEMPTS),
-                refused("x-attempts-empty", Map.of("timeout", Map.of("event", "ClaimPaid", "attempts", List.of())), "Unsupported failures.timeout.attempts \"\"; " + ATTEMPTS),
-                refused("x-attempts-zero", Map.of("timeout", Map.of("event", "ClaimPaid", "attempts", List.of(1, 0))), "Unsupported failures.timeout.attempts \"1,0\"; " + ATTEMPTS),
-                refused("x-attempts-fraction", Map.of("timeout", Map.of("event", "ClaimPaid", "attempts", List.of(1.5))), "Unsupported failures.timeout.attempts \"1.5\"; " + ATTEMPTS),
-                refused("x-attempts-word", Map.of("timeout", Map.of("event", "ClaimPaid", "attempts", "first")), "Unsupported failures.timeout.attempts \"first\"; " + ATTEMPTS),
-                // Jackson parses this as a Long, which intValue() used to wrap to attempt 1.
-                refused("x-attempts-huge", Map.of("timeout", Map.of("event", "ClaimPaid", "attempts", List.of(4294967297L))), "Unsupported failures.timeout.attempts \"4294967297\"; " + ATTEMPTS));
-    }
-
-    static Stream<Arguments> unsupportedReorderDelays() {
-        return Stream.of(
-                refused("x-delay-50", Map.of("reorder", Map.of("event", "ClaimAccepted", "delayMs", 50)), "Unsupported failures.reorder.delayMs \"50\"; " + DELAY),
-                refused("x-delay-missing", Map.of("reorder", Map.of("event", "ClaimAccepted")), "Unsupported failures.reorder.delayMs \"null\"; " + DELAY));
-    }
-
-    @ParameterizedTest(name = "{0}")
-    @MethodSource("unknownEvents")
-    void aFailureThatTargetsAnUnknownEventTypeIsRejectedAtLoad(String ignoredId, Map<String, Object> json, String message) {
-        assertThatThrownBy(() -> Scenario.fromMap(json)).isInstanceOf(IllegalArgumentException.class).hasMessage(message);
-    }
-
-    @ParameterizedTest(name = "{0}")
-    @MethodSource("invalidTimeoutAttempts")
-    void timeoutAttemptsThatAreNeitherAllNorPositiveIntegersAreRejectedAtLoad(String ignoredId, Map<String, Object> json, String message) {
-        assertThatThrownBy(() -> Scenario.fromMap(json)).isInstanceOf(IllegalArgumentException.class).hasMessage(message);
-    }
-
-    @ParameterizedTest(name = "{0}")
-    @MethodSource("unsupportedReorderDelays")
-    void aReorderDelayOtherThan500IncludingAMissingOneIsRejectedAtLoad(String ignoredId, Map<String, Object> json, String message) {
-        assertThatThrownBy(() -> Scenario.fromMap(json)).isInstanceOf(IllegalArgumentException.class).hasMessage(message);
-    }
-
-    @Test
-    void anUnsupportedBackoffIsRejectedAtLoadEvenWhenNothingRetries() {
-        assertThatThrownBy(() -> Scenario.fromMap(Map.of("id", "x-backoff-quiet", "safeguards", Map.of("backoff", "bogus"))))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("Scenario x-backoff-quiet: Unsupported safeguards.backoff \"bogus\"; expected one of none, fixed, exponential");
-    }
-
-    @Test
-    void aListBackoffIsRejectedAtLoadEvenWhenItsOnlyElementIsSupported() {
-        // The engine compares the raw value, so ["fixed"] is not "fixed" there either.
-        assertThatThrownBy(() -> Scenario.fromMap(Map.of("id", "x-backoff-list", "safeguards", Map.of("backoff", List.of("fixed")))))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("Scenario x-backoff-list: Unsupported safeguards.backoff \"fixed\"; expected one of none, fixed, exponential");
-    }
-
     private static final String RETRY_LIMIT = "expected a whole number from 0 to 5";
     private static final String ON_OFF = "expected true or false";
 
-    private static Arguments refusedSafeguard(String id, String name, Object value, String message) {
+    /** A scenario refused by {@code rule}, whose reason reads {@code Unsupported <rule> "<value>"; <expected>}. */
+    private static Arguments refused(String id, Map<String, Object> json, String rule, String value, String expected) {
+        Map<String, Object> scenario = new HashMap<>(json);
+        scenario.put("id", id);
+        return Arguments.of(id, scenario, rule, "Scenario " + id + ": Unsupported " + rule + " \"" + value + "\"; " + expected);
+    }
+
+    private static Arguments refusedFailure(String id, String kind, Map<String, Object> failure, String rule, String value, String expected) {
+        return refused(id, Map.of("failures", Map.of(kind, failure)), rule, value, expected);
+    }
+
+    private static Arguments refusedSafeguard(String id, String name, Object value, String shown, String expected) {
         Map<String, Object> safeguards = new HashMap<>(); // Map.of takes no null value
         safeguards.put(name, value);
-        return Arguments.of(id, Map.of("id", id, "safeguards", safeguards), "Scenario " + id + ": " + message);
+        return refused(id, Map.of("safeguards", safeguards), "safeguards." + name, shown, expected);
     }
 
-    // The same cases and messages as the safeguard refusal tests in test/engine.test.js.
-    static Stream<Arguments> unsupportedSafeguards() {
+    /**
+     * Each single-field rule, refused with that field's path as the rule id and a reason in Java's own words: a value reads
+     * as String.valueOf shows it (#198). Which rule refuses which input is held to the engine's by
+     * test/differential/refusals.json, which DifferentialRunnerTest and test/differential.test.js both read.
+     */
+    static Stream<Arguments> brokenRules() {
+        Map<String, Object> noEvent = new HashMap<>();
         return Stream.of(
-                refusedSafeguard("x-retry-text", "retryLimit", "3", "Unsupported safeguards.retryLimit \"3\"; " + RETRY_LIMIT),
-                refusedSafeguard("x-retry-null", "retryLimit", null, "Unsupported safeguards.retryLimit \"null\"; " + RETRY_LIMIT),
-                refusedSafeguard("x-retry-negative", "retryLimit", -1, "Unsupported safeguards.retryLimit \"-1\"; " + RETRY_LIMIT),
-                refusedSafeguard("x-retry-fraction", "retryLimit", 1.5, "Unsupported safeguards.retryLimit \"1.5\"; " + RETRY_LIMIT),
-                refusedSafeguard("x-retry-tiny", "retryLimit", 0.0001, "Unsupported safeguards.retryLimit \"0.0001\"; " + RETRY_LIMIT),
-                refusedSafeguard("x-retry-tinier", "retryLimit", 1e-7, "Unsupported safeguards.retryLimit \"1e-7\"; " + RETRY_LIMIT),
-                refusedSafeguard("x-retry-vast", "retryLimit", 1.5e21, "Unsupported safeguards.retryLimit \"1.5e+21\"; " + RETRY_LIMIT),
+                refusedFailure("x-poison-typo", "poison", Map.of("event", "ClaimPayed"), "failures.poison.event", "ClaimPayed", EVENTS),
+                refusedFailure("x-timeout-typo", "timeout", Map.of("event", "ClaimPayed", "attempts", "all"), "failures.timeout.event", "ClaimPayed", EVENTS),
+                refusedFailure("x-duplicate-none", "duplicate", noEvent, "failures.duplicate.event", "null", EVENTS),
+                refusedFailure("x-reorder-typo", "reorder", Map.of("event", "claimAccepted", "delayMs", 500), "failures.reorder.event", "claimAccepted", EVENTS),
+                refusedFailure("x-schema-number", "schemaChange", Map.of("event", 3), "failures.schemaChange.event", "3", EVENTS),
+                refusedFailure("x-attempts-missing", "timeout", Map.of("event", "ClaimPaid"), "failures.timeout.attempts", "null", ATTEMPTS),
+                refusedFailure("x-attempts-empty", "timeout", Map.of("event", "ClaimPaid", "attempts", List.of()), "failures.timeout.attempts", "[]", ATTEMPTS),
+                refusedFailure("x-attempts-zero", "timeout", Map.of("event", "ClaimPaid", "attempts", List.of(1, 0)), "failures.timeout.attempts", "[1, 0]", ATTEMPTS),
+                refusedFailure("x-attempts-fraction", "timeout", Map.of("event", "ClaimPaid", "attempts", List.of(1.5)), "failures.timeout.attempts", "[1.5]", ATTEMPTS),
+                refusedFailure("x-attempts-word", "timeout", Map.of("event", "ClaimPaid", "attempts", "first"), "failures.timeout.attempts", "first", ATTEMPTS),
+                // Jackson parses this as a Long, which intValue() used to wrap to attempt 1.
+                refusedFailure("x-attempts-huge", "timeout", Map.of("event", "ClaimPaid", "attempts", List.of(4294967297L)), "failures.timeout.attempts", "[4294967297]", ATTEMPTS),
+                refusedFailure("x-delay-50", "reorder", Map.of("event", "ClaimAccepted", "delayMs", 50), "failures.reorder.delayMs", "50", DELAY),
+                refusedFailure("x-delay-missing", "reorder", Map.of("event", "ClaimAccepted"), "failures.reorder.delayMs", "null", DELAY),
+                refusedSafeguard("x-backoff-quiet", "backoff", "bogus", "bogus", "expected one of none, fixed, exponential"),
+                // The engine compares the raw value, so ["fixed"] is not "fixed" there either.
+                refusedSafeguard("x-backoff-list", "backoff", List.of("fixed"), "[fixed]", "expected one of none, fixed, exponential"),
+                refusedSafeguard("x-retry-text", "retryLimit", "3", "3", RETRY_LIMIT),
+                refusedSafeguard("x-retry-null", "retryLimit", null, "null", RETRY_LIMIT),
+                refusedSafeguard("x-retry-negative", "retryLimit", -1, "-1", RETRY_LIMIT),
+                refusedSafeguard("x-retry-fraction", "retryLimit", 1.5, "1.5", RETRY_LIMIT),
+                refusedSafeguard("x-retry-tiny", "retryLimit", 0.0001, "1.0E-4", RETRY_LIMIT),
+                refusedSafeguard("x-retry-vast", "retryLimit", 1.5e21, "1.5E21", RETRY_LIMIT),
                 // Above the most retries the runner can finish inside its run limit.
-                refusedSafeguard("x-retry-six", "retryLimit", 6, "Unsupported safeguards.retryLimit \"6\"; " + RETRY_LIMIT),
-                refusedSafeguard("x-retry-int-max", "retryLimit", Integer.MAX_VALUE, "Unsupported safeguards.retryLimit \"2147483647\"; " + RETRY_LIMIT),
+                refusedSafeguard("x-retry-six", "retryLimit", 6, "6", RETRY_LIMIT),
+                refusedSafeguard("x-retry-int-max", "retryLimit", Integer.MAX_VALUE, "2147483647", RETRY_LIMIT),
                 // Past the int range: intValue() would wrap 4294967297 to 1 retry.
-                refusedSafeguard("x-retry-huge", "retryLimit", 4294967297L, "Unsupported safeguards.retryLimit \"4294967297\"; " + RETRY_LIMIT),
-                refusedSafeguard("x-idempotency-text", "idempotency", "false", "Unsupported safeguards.idempotency \"false\"; " + ON_OFF),
-                refusedSafeguard("x-ordering-text", "ordering", "false", "Unsupported safeguards.ordering \"false\"; " + ON_OFF),
-                refusedSafeguard("x-schemaValidation-text", "schemaValidation", "false", "Unsupported safeguards.schemaValidation \"false\"; " + ON_OFF),
-                refusedSafeguard("x-deadLetter-text", "deadLetter", "false", "Unsupported safeguards.deadLetter \"false\"; " + ON_OFF),
-                refusedSafeguard("x-replayAfterFix-text", "replayAfterFix", "false", "Unsupported safeguards.replayAfterFix \"false\"; " + ON_OFF),
-                refusedSafeguard("x-dedupe-number", "idempotency", 1, "Unsupported safeguards.idempotency \"1\"; " + ON_OFF),
-                refusedSafeguard("x-dedupe-fraction", "idempotency", 0.0001, "Unsupported safeguards.idempotency \"0.0001\"; " + ON_OFF),
-                refusedSafeguard("x-dlq-null", "deadLetter", null, "Unsupported safeguards.deadLetter \"null\"; " + ON_OFF));
+                refusedSafeguard("x-retry-huge", "retryLimit", 4294967297L, "4294967297", RETRY_LIMIT),
+                refusedSafeguard("x-idempotency-text", "idempotency", "false", "false", ON_OFF),
+                refusedSafeguard("x-ordering-text", "ordering", "false", "false", ON_OFF),
+                refusedSafeguard("x-schemaValidation-text", "schemaValidation", "false", "false", ON_OFF),
+                refusedSafeguard("x-deadLetter-text", "deadLetter", "false", "false", ON_OFF),
+                refusedSafeguard("x-replayAfterFix-text", "replayAfterFix", "false", "false", ON_OFF),
+                refusedSafeguard("x-dedupe-number", "idempotency", 1, "1", ON_OFF),
+                refusedSafeguard("x-dedupe-object", "idempotency", Map.of(), "{}", ON_OFF),
+                refusedSafeguard("x-dlq-null", "deadLetter", null, "null", ON_OFF),
+                refused("x-failures-list", Map.of("failures", List.of("timeout", 1)), "failures", "[timeout, 1]", "expected an object"),
+                refused("x-safeguards-number", Map.of("safeguards", 3.5), "safeguards", "3.5", "expected an object"));
     }
 
     @ParameterizedTest(name = "{0}")
-    @MethodSource("unsupportedSafeguards")
-    void aRetryLimitOrOnOffSafeguardOfTheWrongTypeOrRangeIsRejectedAtLoad(String ignoredId, Map<String, Object> json, String message) {
-        assertThatThrownBy(() -> Scenario.fromMap(json)).isInstanceOf(IllegalArgumentException.class).hasMessage(message);
-    }
-
-    // What node prints for String(x) of the same JSON number: plain decimal from 1e-7 up to 1e21, the shortest digits
-    // that read back as the same double, and E-notation with a sign outside that range.
-    static Stream<Arguments> numbersAsJavaScriptShowsThem() {
-        return Stream.of(
-                Arguments.of(0.0001, "0.0001"), Arguments.of(0.000001, "0.000001"), Arguments.of(1e-7, "1e-7"),
-                Arguments.of(-1e-7, "-1e-7"), Arguments.of(1.23e-18, "1.23e-18"), Arguments.of(Double.MIN_VALUE, "5e-324"),
-                Arguments.of(0.1 + 0.2, "0.30000000000000004"), Arguments.of(4.35, "4.35"), Arguments.of(1278262360055478.75, "1278262360055478.8"), Arguments.of(-1.5, "-1.5"),
-                Arguments.of(-0.0, "0"), Arguments.of(2.0, "2"), Arguments.of(1e16, "10000000000000000"),
-                Arguments.of(1.2345678901234568e20, "123456789012345680000"), Arguments.of(1e21, "1e+21"),
-                Arguments.of(1.5e21, "1.5e+21"), Arguments.of(Double.MAX_VALUE, "1.7976931348623157e+308"),
-                Arguments.of(4294967297L, "4294967297"), Arguments.of(new BigInteger("12345678901234567890"), "12345678901234567000"),
-                Arguments.of(new BigDecimal("0.0001"), "0.0001"), Arguments.of(Double.POSITIVE_INFINITY, "Infinity"),
-                Arguments.of(Double.NaN, "NaN"));
-    }
-
-    @ParameterizedTest(name = "{1}")
-    @MethodSource("numbersAsJavaScriptShowsThem")
-    void aNumberIsShownAsJavaScriptsStringShowsIt(Number value, String shown) {
-        assertThat(Scenario.shown(value)).isEqualTo(shown);
-    }
-
-    // String() of an object is [object Object]; of an array, its elements joined by commas, with null as empty.
-    static Stream<Arguments> objectsAndListsAsJavaScriptShowsThem() {
-        return Stream.of(
-                Arguments.of(Map.of(), "[object Object]"), Arguments.of(Arrays.asList(null, 1), ",1"),
-                Arguments.of(List.of(List.of(1, 2), 3), "1,2,3"), Arguments.of(List.of(Map.of()), "[object Object]"));
-    }
-
-    @ParameterizedTest(name = "{1}")
-    @MethodSource("objectsAndListsAsJavaScriptShowsThem")
-    void anObjectOrListIsShownAsJavaScriptsStringShowsIt(Object value, String shown) {
-        assertThat(Scenario.shown(value)).isEqualTo(shown);
-    }
-
-    @Test
-    void theRetryLimitIsCheckedFirstThenTheOnOffSafeguardsInTheEnginesOrder() {
-        assertThatThrownBy(() -> Scenario.fromMap(Map.of("id", "x-several",
-                "safeguards", Map.of("replayAfterFix", 0, "ordering", "yes", "retryLimit", "1"))))
-                .hasMessage("Scenario x-several: Unsupported safeguards.retryLimit \"1\"; " + RETRY_LIMIT);
-        assertThatThrownBy(() -> Scenario.fromMap(Map.of("id", "x-several", "safeguards", Map.of("replayAfterFix", 0, "ordering", "yes"))))
-                .hasMessage("Scenario x-several: Unsupported safeguards.ordering \"yes\"; " + ON_OFF);
-    }
-
-    private static Arguments brokenTwice(String id, Map<String, Object> failures, Map<String, Object> safeguards, String message) {
-        return Arguments.of(id, Map.of("id", id, "failures", failures, "safeguards", safeguards), "Scenario " + id + ": " + message);
-    }
-
-    // A scenario that breaks two rules from different groups gets the message of the rule engine/rules.js refusal() checks
-    // first. The same cases as the precedence test in test/engine.test.js.
-    static Stream<Arguments> rulesBrokenTwice() {
-        Map<String, Object> sameEvent = Map.of("poison", Map.of("event", "ClaimPaid"), "schemaChange", Map.of("event", "ClaimPaid"));
-        return Stream.of(
-                brokenTwice("x-event-and-backoff", Map.of("poison", Map.of("event", "ClaimPayed")), Map.of("backoff", "bogus"),
-                        "Unsupported failures.poison.event \"ClaimPayed\"; " + EVENTS),
-                brokenTwice("x-delay-and-same-event", Map.of("reorder", Map.of("event", "ClaimAccepted", "delayMs", 50),
-                                "poison", Map.of("event", "ClaimPaid"), "schemaChange", Map.of("event", "ClaimPaid")), Map.of(),
-                        "Unsupported failures.reorder.delayMs \"50\"; " + DELAY),
-                brokenTwice("x-same-event-and-retry", sameEvent, Map.of("retryLimit", -1),
-                        "failures.poison and failures.schemaChange cannot target the same event (ClaimPaid)"),
-                brokenTwice("x-backoff-and-retry", Map.of(), Map.of("backoff", "bogus", "retryLimit", -1),
-                        "Unsupported safeguards.backoff \"bogus\"; expected one of none, fixed, exponential"),
-                brokenTwice("x-retry-and-toggle", Map.of(), Map.of("retryLimit", -1, "idempotency", "yes"),
-                        "Unsupported safeguards.retryLimit \"-1\"; " + RETRY_LIMIT),
-                brokenTwice("x-same-event-and-six", sameEvent, Map.of("retryLimit", 6),
-                        "failures.poison and failures.schemaChange cannot target the same event (ClaimPaid)"),
-                brokenTwice("x-backoff-and-six", Map.of(), Map.of("backoff", "bogus", "retryLimit", 6),
-                        "Unsupported safeguards.backoff \"bogus\"; expected one of none, fixed, exponential"),
-                brokenTwice("x-six-and-toggle", Map.of(), Map.of("retryLimit", 6, "idempotency", "yes"),
-                        "Unsupported safeguards.retryLimit \"6\"; " + RETRY_LIMIT));
-    }
-
-    @ParameterizedTest(name = "{0}")
-    @MethodSource("rulesBrokenTwice")
-    void aScenarioThatBreaksTwoRulesGetsTheMessageOfTheOneTheEngineChecksFirst(String ignoredId, Map<String, Object> json, String message) {
-        assertThatThrownBy(() -> Scenario.fromMap(json)).isInstanceOf(IllegalArgumentException.class).hasMessage(message);
-    }
-
-    @Test
-    void aNonObjectSectionIsRefusedBeforeAnyFailureRule() {
-        // refusal() checks the shape of both sections first, as engine/rules.js does, so the event rule never reads them.
-        assertThatThrownBy(() -> Scenario.fromMap(Map.of("id", "x-event-and-list-safeguards",
-                "failures", Map.of("poison", Map.of("event", "ClaimPayed")), "safeguards", List.of())))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("Scenario x-event-and-list-safeguards: Unsupported safeguards \"\"; expected an object");
+    @MethodSource("brokenRules")
+    void aScenarioThatBreaksARuleIsRefusedWithTheRuleIdAndAReasonInJavasWords(String ignoredId, Map<String, Object> json, String rule, String message) {
+        assertThatThrownBy(() -> Scenario.fromMap(json)).isInstanceOf(Scenario.Refused.class).hasMessage(message)
+                .extracting(e -> ((Scenario.Refused) e).rule()).isEqualTo(rule);
     }
 
     @Test
     void nonObjectFailuresAreRefused() {
         assertThatThrownBy(() -> Scenario.fromMap(Map.of("id", "x", "failures", "timeout")))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageStartingWith("Scenario x: ");
+                .isInstanceOf(Scenario.Refused.class)
+                .hasMessageStartingWith("Scenario x: ")
+                .extracting(e -> ((Scenario.Refused) e).rule()).isEqualTo("failures");
     }
 
     @Test
@@ -310,8 +192,9 @@ class ScenarioTest {
         Map<String, Object> json = new HashMap<>();
         if (id != null) json.put("id", id);
         assertThatThrownBy(() -> Scenario.fromFile(json))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage(prefix + ": id must be lowercase letters, digits and single hyphens");
+                .isInstanceOf(Scenario.Refused.class)
+                .hasMessage(prefix + ": id must be lowercase letters, digits and single hyphens")
+                .extracting(e -> ((Scenario.Refused) e).rule()).isEqualTo("id");
     }
 
     @Test

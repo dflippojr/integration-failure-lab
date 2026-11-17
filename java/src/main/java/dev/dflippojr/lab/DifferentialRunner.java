@@ -122,13 +122,16 @@ public class DifferentialRunner implements CommandLineRunner {
         };
     }
 
-    /** The normalised outcome, or {@code {error}} when the combination is refused, cannot be read or the run fails. */
+    /**
+     * The normalised outcome; {@code {refused: <rule id>}} when the combination breaks a rule, the id engine/rules.js gives
+     * for it (#198); or {@code {error}} when it cannot be read or the run fails.
+     */
     static Map<String, Object> outcome(ScenarioRunner runner, Map<String, Object> combination) throws InterruptedException {
         Scenario scenario;
         try {
             scenario = Scenario.fromMap(combination);
-        } catch (IllegalArgumentException refused) {
-            return Map.of("error", refused.getMessage());
+        } catch (Scenario.Refused refused) {
+            return Map.of("refused", refused.rule());
         } catch (RuntimeException unreadable) {
             // A value fromMap cannot parse that no refusal covers costs this combination, not the whole batch.
             log.warn("Combination {} could not be read", combination.get("id"), unreadable);

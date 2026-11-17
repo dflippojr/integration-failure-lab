@@ -1,8 +1,5 @@
 package dev.dflippojr.lab;
 
-import java.math.BigDecimal;
-import java.math.MathContext;
-import java.math.RoundingMode;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -30,6 +27,29 @@ public record Scenario(String id, int order, String title, Failures failures, Sa
     // The on/off safeguards and their defaults, in engine.js DEFAULT_SAFEGUARDS order, which is the order they are checked in.
     static final List<Map.Entry<String, Boolean>> TOGGLES = List.of(Map.entry("idempotency", false), Map.entry("ordering", false),
             Map.entry("schemaValidation", false), Map.entry("deadLetter", true), Map.entry("replayAfterFix", false));
+    // The id of the one cross-field rule, engine/rules.js SAME_EVENT_RULE. Every other rule's id is the path of its field.
+    static final String SAME_EVENT_RULE = "failures.poison+schemaChange";
+
+    /**
+     * A scenario that breaks a rule. {@link #rule()} is the rule's id, which engine/rules.js refusal() gives for the same
+     * input and the differential compares (#198); the message is this runtime's own wording, after "Scenario &lt;id&gt;: ".
+     */
+    public static final class Refused extends IllegalArgumentException {
+        private final String rule;
+
+        Refused(Object id, String rule, String reason) {
+            super("Scenario " + id + ": " + reason);
+            this.rule = rule;
+        }
+
+        public String rule() {
+            return rule;
+        }
+    }
+
+    /** The first rule a scenario breaks: its id and why. */
+    record Refusal(String rule, String reason) {
+    }
 
     public record Failures(String timeoutEvent, Set<Integer> timeoutAttempts, boolean timeoutAll,
                            String duplicateEvent, String reorderEvent, String schemaChangeEvent,
@@ -91,7 +111,7 @@ public record Scenario(String id, int order, String title, Failures failures, Sa
     public static Scenario fromFile(Map<String, Object> json) {
         Object id = json.get("id");
         if (!(id instanceof String s && ID_SHAPE.matcher(s).matches())) {
-            throw refused(id, "id must be lowercase letters, digits and single hyphens");
+            throw new Refused(id, "id", "id must be lowercase letters, digits and single hyphens");
         }
         return fromMap(json);
     }
@@ -100,8 +120,8 @@ public record Scenario(String id, int order, String title, Failures failures, Sa
     public static Scenario fromMap(Map<String, Object> json) {
         Object rawFailures = section(json, "failures");
         Object rawSafeguards = section(json, "safeguards");
-        String refused = refusal(rawFailures, rawSafeguards);
-        if (refused != null) throw refused(json.get("id"), refused);
+        Refusal refused = refusal(rawFailures, rawSafeguards);
+        if (refused != null) throw new Refused(json.get("id"), refused.rule(), refused.reason());
 
         Map<String, Object> f = (Map<String, Object>) rawFailures;
         Map<String, Object> timeout = (Map<String, Object>) f.get("timeout");
@@ -133,12 +153,13 @@ public record Scenario(String id, int order, String title, Failures failures, Sa
     }
 
     /**
-     * Why the engine would refuse this scenario, or null: engine/rules.js refusal() checks the same rules in the same order,
-     * with the same text. Every rule checks the raw JSON value, as the engine does, so {@link #fromMap} only parses
-     * values already known to be valid.
+     * The first rule this scenario breaks, or null: engine/rules.js refusal() checks the same rules in the same order, so
+     * both name the same rule id (#198). The reasons are each runtime's own; values here read as String.valueOf shows
+     * them. Every rule checks the raw JSON value, as the engine does, so {@link #fromMap} only parses values already known
+     * to be valid.
      */
     @SuppressWarnings("unchecked")
-    private static String refusal(Object rawFailures, Object rawSafeguards) {
+    static Refusal refusal(Object rawFailures, Object rawSafeguards) {
         if (!(rawFailures instanceof Map)) {
             return unsupported("failures", rawFailures, "an object");
         }
@@ -166,9 +187,9 @@ public record Scenario(String id, int order, String title, Failures failures, Sa
         // Every failure that is set has a known event by now.
         Object poisonEvent = field(f.get("poison"), "event");
         if (poisonEvent != null && poisonEvent.equals(field(f.get("schemaChange"), "event"))) {
-            return "failures.poison and failures.schemaChange cannot target the same event (" + poisonEvent + ")";
+            return new Refusal(SAME_EVENT_RULE, "failures.poison and failures.schemaChange cannot target the same event (" + poisonEvent + ")");
         }
-        // shown() would turn ["fixed"] into "fixed", so this checks the raw value.
+        // The raw value: ["fixed"] is not "fixed" in the engine either.
         Object backoff = g.getOrDefault("backoff", "exponential");
         if (!(backoff instanceof String name && Safeguards.BACKOFFS.contains(name))) {
             return unsupported("safeguards.backoff", backoff, "one of " + String.join(", ", Safeguards.BACKOFFS));
@@ -192,12 +213,8 @@ public record Scenario(String id, int order, String title, Failures failures, Sa
         return value == null ? Map.of() : value;
     }
 
-    private static IllegalArgumentException refused(Object id, String reason) {
-        return new IllegalArgumentException("Scenario " + id + ": " + reason);
-    }
-
-    private static String unsupported(String path, Object value, String expected) {
-        return "Unsupported " + path + " \"" + shown(value) + "\"; expected " + expected;
+    private static Refusal unsupported(String path, Object value, String expected) {
+        return new Refusal(path, "Unsupported " + path + " \"" + value + "\"; expected " + expected);
     }
 
     private static Object field(Object failure, String name) {
@@ -209,63 +226,6 @@ public record Scenario(String id, int order, String title, Failures failures, Sa
     private static boolean positiveInteger(Object n) {
         return n instanceof Number num && Double.isFinite(num.doubleValue()) && num.doubleValue() > 0
                 && num.doubleValue() <= Integer.MAX_VALUE && num.doubleValue() == Math.rint(num.doubleValue());
-    }
-
-    /** A JSON value as JavaScript's String() shows it, so a refusal reads the same on both sides. */
-    static String shown(Object value) {
-        return switch (value) {
-            case null -> "null";
-            // The engine holds every JSON number as a double, so 12345678901234567890 reads 12345678901234567000 there too.
-            case Number n -> numberShown(n.doubleValue());
-            case List<?> list -> String.join(",", list.stream().map(e -> e == null ? "" : shown(e)).toList());
-            case Map<?, ?> ignored -> "[object Object]";
-            default -> value.toString();
-        };
-    }
-
-    /**
-     * JavaScript's Number::toString: the fewest significant digits that read back as x (the closest such digits when
-     * there are several, the even ones on a tie), in plain decimal from 1e-7 up to 1e21 and in E-notation with a sign
-     * outside that range. Double.toString differs in notation and, for some doubles, in digits: 4.9E-324 where
-     * JavaScript writes 5e-324.
-     */
-    private static String numberShown(double x) {
-        if (!Double.isFinite(x)) {
-            return Double.toString(x); // NaN, Infinity and -Infinity are spelled the same on both sides
-        }
-        if (x == 0) {
-            return "0"; // -0 too
-        }
-        if (x < 0) {
-            return "-" + numberShown(-x);
-        }
-        // Double.toString's digits: the shortest that read back as x, but never fewer than two (4.9E-324). Rounding them
-        // finds the same k digits as rounding x itself, since no shorter decimal lies between the two.
-        BigDecimal shortest = BigDecimal.valueOf(x);
-        BigDecimal digits = null;
-        for (int k = 1; digits == null; k++) {
-            // The nearest k digits first (the even ones on a tie, as the spec says), then the other neighbour.
-            for (RoundingMode mode : List.of(RoundingMode.HALF_EVEN, RoundingMode.FLOOR, RoundingMode.CEILING)) {
-                BigDecimal candidate = shortest.round(new MathContext(k, mode));
-                if (digits == null && candidate.doubleValue() == x) {
-                    digits = candidate.stripTrailingZeros();
-                }
-            }
-        }
-        String s = digits.unscaledValue().toString();
-        int k = s.length();
-        int n = k - digits.scale(); // x is 0.s times 10^n
-        if (k <= n && n <= 21) {
-            return s + "0".repeat(n - k);
-        }
-        if (0 < n && n <= 21) {
-            return s.substring(0, n) + "." + s.substring(n);
-        }
-        if (-6 < n && n <= 0) {
-            return "0." + "0".repeat(-n) + s;
-        }
-        String exponent = (n - 1 < 0 ? "e-" : "e+") + Math.abs(n - 1);
-        return k == 1 ? s + exponent : s.charAt(0) + "." + s.substring(1) + exponent;
     }
 
     @SuppressWarnings("unchecked")

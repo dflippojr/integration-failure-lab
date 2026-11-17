@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { run, backoffMs, judge, suggestSafeguards, SAFEGUARD_CHANGES, EXPECTED_RECORD, TIMING } from '../engine/engine.js';
-import { checkedRun, refusal } from '../engine/rules.js';
+import { checkedRun, refusal, SAME_EVENT_RULE } from '../engine/rules.js';
 
 const dir = new URL('../scenarios/', import.meta.url);
 const scenarios = readdirSync(dir)
@@ -166,11 +166,15 @@ test('poison and a schema change on the same event are rejected when the scenari
   const scenario = { id: 'x2-poison-schema', failures: { poison: { event: 'ClaimPaid' }, schemaChange: { event: 'ClaimPaid' } } };
   assert.throws(() => checkedRun(scenario), {
     message: 'Scenario x2-poison-schema: failures.poison and failures.schemaChange cannot target the same event (ClaimPaid)',
+    rule: 'failures.poison+schemaChange',
   });
 });
 
-// Each refusal is checked before anything is scheduled, with the message Scenario.fromMap gives (ScenarioTest).
-const refuses = (scenario, message) => assert.throws(() => checkedRun(scenario), { message: `Scenario ${scenario.id}: ${message}` });
+// Each refusal is checked before anything is scheduled, in the engine's own words. The error also carries the rule's id,
+// which is what the differential compares with the Java runner (#198, test/differential/refusals.json): the field the
+// reason names, or SAME_EVENT_RULE.
+const ruleOf = message => (message.startsWith('Unsupported ') ? message.split(' ')[1] : SAME_EVENT_RULE);
+const refuses = (scenario, message) => assert.throws(() => checkedRun(scenario), { message: `Scenario ${scenario.id}: ${message}`, rule: ruleOf(message) });
 
 test('a failure that targets an unknown event type is rejected when the scenario runs', () => {
   const expected = 'expected one of ClaimSubmitted, ClaimAccepted, ClaimPaid';
@@ -260,7 +264,7 @@ test('an on/off safeguard that is not true or false is rejected when the scenari
 });
 
 test('a scenario that breaks two rules from different groups is refused for the one checked first', () => {
-  // The same cases as rulesBrokenTwice in ScenarioTest.
+  // test/differential/refusals.json holds the Java runner to the same order.
   const sameEvent = { poison: { event: 'ClaimPaid' }, schemaChange: { event: 'ClaimPaid' } };
   refuses({ id: 'x-event-and-backoff', failures: { poison: { event: 'ClaimPayed' } }, safeguards: { backoff: 'bogus' } },
     'Unsupported failures.poison.event "ClaimPayed"; expected one of ClaimSubmitted, ClaimAccepted, ClaimPaid');
@@ -272,7 +276,7 @@ test('a scenario that breaks two rules from different groups is refused for the 
     'Unsupported safeguards.backoff "bogus"; expected one of none, fixed, exponential');
   refuses({ id: 'x-retry-and-toggle', safeguards: { retryLimit: -1, idempotency: 'yes' } },
     'Unsupported safeguards.retryLimit "-1"; expected a whole number from 0 to 5');
-  // The shape of a section is checked before any rule that reads it (aNonObjectSectionIsRefusedBeforeAnyFailureRule).
+  // The shape of a section is checked before any rule that reads it (safeguards-before-event in non-object-sections.json).
   refuses({ id: 'x-event-and-list-safeguards', failures: { poison: { event: 'ClaimPayed' } }, safeguards: [] },
     'Unsupported safeguards ""; expected an object');
 });
@@ -289,7 +293,7 @@ test('every shipped scenario, and each safeguard change suggestSafeguards tries 
 test('run() itself no longer validates; checkedRun() refuses what run() would accept', () => {
   const scenario = { id: 'x-retry-nine', safeguards: { retryLimit: 9 } };
   assert.equal(run(scenario).verdict.ok, true);
-  assert.equal(refusal(scenario), 'Unsupported safeguards.retryLimit "9"; expected a whole number from 0 to 5');
+  assert.deepEqual(refusal(scenario), { rule: 'safeguards.retryLimit', reason: 'Unsupported safeguards.retryLimit "9"; expected a whole number from 0 to 5' });
   refuses(scenario, 'Unsupported safeguards.retryLimit "9"; expected a whole number from 0 to 5');
   assert.deepEqual(checkedRun(byId('2a-duplicate'), { idempotency: true }), run(byId('2a-duplicate'), { idempotency: true }));
 });
@@ -300,7 +304,7 @@ test('a failures or safeguards section that is not an object is refused, not run
   // Falsy values spread to nothing, so only the raw section shows they are there.
   refuses({ id: 'x', failures: false }, 'Unsupported failures "false"; expected an object');
   refuses({ id: 'x', safeguards: 0 }, 'Unsupported safeguards "0"; expected an object');
-  // String() throws on an object whose own toString is not a function; Scenario.shown gives [object Object].
+  // String() throws on an object whose own toString is not a function, so the reason spells it [object Object].
   refuses({ id: 'x', failures: [{ toString: 0 }] }, 'Unsupported failures "[object Object]"; expected an object');
   refuses({ id: 'x', safeguards: { backoff: { toString: 0 } } }, 'Unsupported safeguards.backoff "[object Object]"; expected one of none, fixed, exponential');
   // Overrides replace safeguards, but they do not make a broken file valid.
