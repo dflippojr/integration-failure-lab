@@ -4,9 +4,11 @@
 // change, each pair of failure kinds under the defaults, every four-failure Free-form setting under the
 // defaults and with the consumer safeguards on, the longest runs around the retry limit, and a seeded sample of
 // three-kind runs; not the whole Free-form space. Needs the runner jar: cd java && ./mvnw -B package -DskipTests
+// It also runs the refusal cases: every row of test/differential/refusals.json and non-object-sections.json. None of the
+// generated combinations breaks two rules, so those rows are what holds both runtimes to the same rule order (#198).
 //
 //   npm run differential                      all combinations
-//   npm run differential -- --only <id> ...   just these (the repro line each mismatch prints)
+//   npm run differential -- --only <id> ...   just these combinations or refusal cases (each mismatch's repro line)
 //   npm run differential -- --workers <1-4>   Java combinations run at a time in the one JVM (default 4)
 //   npm run differential -- --scale <f>       Java speed as a fraction of the engine's virtual clock, as --lab.time-scale
 //                                             (default 0.25, the runner's own default, so no timing argument; at least 0.005)
@@ -68,6 +70,14 @@ function checkScale(scale) {
   }
 }
 
+// The rows of the shared refusal tables, as combinations: both runtimes' tests check each against its expected rule id,
+// and the differential checks that both name the same one.
+export const REFUSAL_TABLES = ['refusals.json', 'non-object-sections.json'];
+export function refusalCases() {
+  return REFUSAL_TABLES.flatMap(name => JSON.parse(readFileSync(join(root, 'test', 'differential', name), 'utf8')))
+    .map(row => Object.fromEntries(Object.entries(row).filter(([key]) => key !== 'refused')));
+}
+
 // Owner-decided divergences: at most MAX_KNOWN, each with an issue link and the exact combination ids it
 // explains, so it can never hide a new mismatch. The file only ever shrinks.
 export function loadKnown(path = KNOWN_PATH) {
@@ -81,7 +91,7 @@ export function loadKnown(path = KNOWN_PATH) {
   return known;
 }
 
-export function report({ explained, unexplained, stale }, total, write = console.log) {
+export function report({ explained, unexplained, stale }, total, write = console.log, noun = 'combinations') {
   for (const m of unexplained) {
     write(`\nMISMATCH ${m.combination.id} (differs in: ${m.fields.join(', ')})`);
     write(`  combination: ${JSON.stringify({ failures: m.combination.failures, safeguards: m.combination.safeguards })}`);
@@ -93,7 +103,7 @@ export function report({ explained, unexplained, stale }, total, write = console
   const perIssue = new Map();
   for (const m of explained) perIssue.set(m.known.issue, (perIssue.get(m.known.issue) ?? 0) + 1);
   const byIssue = [...perIssue].map(([issue, n]) => `${n} by ${issue}`);
-  write(`\n${total} combinations: ${total - explained.length - unexplained.length} agree, `
+  write(`\n${total} ${noun}: ${total - explained.length - unexplained.length} agree, `
     + `${explained.length} known divergences${byIssue.length ? ` (${byIssue.join(', ')})` : ''}, ${unexplained.length} unexplained mismatches.`);
   return unexplained.length === 0 && stale.length === 0;
 }
@@ -121,33 +131,42 @@ function runBatch(inFile, outFile, args) {
   runJar([`--lab.differential-in=${inFile}`, `--lab.differential-out=${outFile}`, ...args]);
 }
 
-// Runs the selected combinations on both sides and reports; true when nothing is unexplained or stale.
+// Runs the selected combinations and refusal cases on both sides and reports each group; true when nothing is
+// unexplained or stale.
 export function differential({ only, workers = 4, scale = TIME_SCALE } = {},
   { runJava = runBatch, out = OUT_DIR, known = loadKnown(), write = console.log } = {}) {
   const all = combinations();
+  const cases = refusalCases();
   let selected = all;
+  let selectedCases = cases;
   if (only) {
     const wanted = new Set(only);
     selected = all.filter(c => wanted.has(c.id));
-    const missing = [...wanted].filter(id => !selected.some(c => c.id === id));
+    selectedCases = cases.filter(c => wanted.has(c.id));
+    const missing = [...wanted].filter(id => ![...selected, ...selectedCases].some(c => c.id === id));
     if (missing.length) throw new Error(`Unknown combination id: ${missing.join(', ')}`);
   }
   const javaArgs = [`--lab.differential-workers=${workers}`, ...javaTimingArgs(scale)];
-  write(`Differential test: ${selected.length} of ${all.length} combinations; Java ${javaArgs.join(' ')}`);
+  write(`Differential test: ${selected.length} of ${all.length} combinations and ${selectedCases.length} of ${cases.length} refusal cases; `
+    + `Java ${javaArgs.join(' ')}`);
+  const both = [...selected, ...selectedCases];
 
   mkdirSync(out, { recursive: true });
   const inFile = join(out, 'combinations.json');
   const outFile = join(out, 'java-outcomes.json');
-  writeFileSync(inFile, JSON.stringify(selected, null, 2));
-  const engine = new Map(selected.map(c => [c.id, engineOutcome(c)]));
-  writeFileSync(join(out, 'engine-outcomes.json'), JSON.stringify(selected.map(c => ({ id: c.id, outcome: engine.get(c.id) })), null, 2));
+  writeFileSync(inFile, JSON.stringify(both, null, 2));
+  const engine = new Map(both.map(c => [c.id, engineOutcome(c)]));
+  writeFileSync(join(out, 'engine-outcomes.json'), JSON.stringify(both.map(c => ({ id: c.id, outcome: engine.get(c.id) })), null, 2));
   runJava(inFile, outFile, javaArgs);
   const java = new Map(JSON.parse(readFileSync(outFile, 'utf8')).map(e => [e.id, e.outcome]));
 
   const result = compare(selected, engine, java, known);
   // A subset run cannot tell whether a known divergence is stale.
   if (only) result.stale = [];
-  return report(result, selected.length, write);
+  // known.json lists generated combinations only: a refusal case has no owner-decided divergence.
+  const ok = !selected.length || report(result, selected.length, write);
+  const casesOk = !selectedCases.length || report(compare(selectedCases, engine, java), selectedCases.length, write, 'refusal cases');
+  return ok && casesOk;
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import assert from 'node:assert/strict';
 import { combinations, failureSettings, safeguardToggles, EVENT_TYPES } from './differential/combos.mjs';
 import { engineOutcome, normalise, compare, canonical } from './differential/outcome.mjs';
-import { loadKnown, report, javaTimingArgs, parseOptions, differential, MAX_KNOWN, TIME_SCALE } from '../scripts/differential.mjs';
+import { loadKnown, report, javaTimingArgs, parseOptions, differential, refusalCases, MAX_KNOWN, TIME_SCALE } from '../scripts/differential.mjs';
 import { run, BACKOFFS, DEFAULT_SAFEGUARDS, RETRY_LIMITS } from '../engine/engine.js';
 import { checkedRun, SAME_EVENT_RULE } from '../engine/rules.js';
 
@@ -240,14 +240,31 @@ describe('a differential run', () => {
     return { ok, text: lines.join('\n') };
   };
   const [first, second] = all;
+  const cases = refusalCases();
 
   test('passes when both sides agree', () => {
     const { ok, text } = run2({}, fakeJava());
     assert.equal(ok, true);
     assert.ok(text.includes(`${all.length} combinations: ${all.length} agree, 0 known divergences, 0 unexplained mismatches.`), text);
+    assert.ok(text.includes(`${cases.length} refusal cases: ${cases.length} agree, 0 known divergences, 0 unexplained mismatches.`), text);
     // The default scale passes the Java runner no timing arguments (#197).
-    assert.ok(text.startsWith(`Differential test: ${all.length} of ${all.length} combinations; Java --lab.differential-workers=2\n`), text);
-    assert.equal(JSON.parse(readFileSync(join(out, 'engine-outcomes.json'), 'utf8')).length, all.length);
+    assert.ok(text.startsWith(`Differential test: ${all.length} of ${all.length} combinations and ${cases.length} of ${cases.length} refusal cases; `
+      + 'Java --lab.differential-workers=2\n'), text);
+    assert.equal(JSON.parse(readFileSync(join(out, 'engine-outcomes.json'), 'utf8')).length, all.length + cases.length);
+  });
+
+  // #198: no generated combination breaks two rules, so the shared refusal tables are what can catch a rule-order drift.
+  test('runs every refusal table row on both sides, with ids of their own, and fails when the Java rule differs', () => {
+    assert.equal(cases.length, 73, '53 rows of refusals.json and 20 of non-object-sections.json');
+    assert.equal(new Set([...all, ...cases].map(c => c.id)).size, all.length + cases.length, 'no id is both');
+    assert.ok(cases.every(c => !('refused' in c)), 'the expected rule stays out of what the runtimes see');
+    const swapped = run2({ only: ['backoff-and-retry'] }, fakeJava((o, c) => (c.id === 'backoff-and-retry' ? { refused: 'safeguards.retryLimit' } : o)));
+    assert.equal(swapped.ok, false);
+    assert.ok(swapped.text.startsWith(`Differential test: 0 of ${all.length} combinations and 1 of ${cases.length} refusal cases`), swapped.text);
+    assert.ok(swapped.text.includes('MISMATCH backoff-and-retry (differs in: refused)'), swapped.text);
+    assert.ok(swapped.text.includes('repro:       npm run differential -- --only backoff-and-retry'), swapped.text);
+    assert.ok(swapped.text.includes('1 refusal cases: 0 agree, 0 known divergences, 1 unexplained mismatches.'), swapped.text);
+    assert.ok(!swapped.text.includes(' combinations: '), 'no summary for an empty group');
   });
 
   test('fails on a mismatch and prints its repro', () => {
@@ -261,7 +278,7 @@ describe('a differential run', () => {
     assert.equal(run2({}, fakeJava(), known).ok, false);
     const subset = run2({ only: [first.id] }, fakeJava(), known);
     assert.equal(subset.ok, true);
-    assert.ok(subset.text.startsWith(`Differential test: 1 of ${all.length} combinations`), subset.text);
+    assert.ok(subset.text.startsWith(`Differential test: 1 of ${all.length} combinations and 0 of ${cases.length} refusal cases`), subset.text);
     assert.throws(() => run2({ only: ['nope'] }, fakeJava()), /Unknown combination id: nope/);
   });
 });
