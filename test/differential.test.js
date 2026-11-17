@@ -6,8 +6,9 @@ import { join } from 'node:path';
 import assert from 'node:assert/strict';
 import { combinations, failureSettings, safeguardToggles, EVENT_TYPES } from './differential/combos.mjs';
 import { engineOutcome, normalise, compare, canonical } from './differential/outcome.mjs';
-import { loadKnown, report, javaTimingArgs, parseOptions, differential, MAX_KNOWN, TIME_SCALE } from '../scripts/differential.mjs';
+import { loadKnown, report, javaTimingArgs, parseOptions, differential, refusalCases, MAX_KNOWN, TIME_SCALE } from '../scripts/differential.mjs';
 import { run, BACKOFFS, DEFAULT_SAFEGUARDS, RETRY_LIMITS } from '../engine/engine.js';
+import { checkedRun, SAME_EVENT_RULE } from '../engine/rules.js';
 
 const all = combinations();
 const byId = new Map(all.map(c => [c.id, c]));
@@ -85,59 +86,60 @@ test('the longest runs around the retry limit are generated under every backoff,
       assert.deepEqual(engineOutcome(generated({ retryLimit, backoff })).dlq, ['E3'], `${retryLimit} retries, ${backoff}`);
     }
     assert.deepEqual(engineOutcome(generated({ retryLimit: most, backoff, replayAfterFix: true })).dlq, ['E3'], `replay, ${backoff}`);
-    assert.match(engineOutcome(generated({ retryLimit: most + 1, backoff })).error, /Unsupported safeguards\.retryLimit "6"; expected a whole number from 0 to 5$/);
+    assert.deepEqual(engineOutcome(generated({ retryLimit: most + 1, backoff })), { refused: 'safeguards.retryLimit' });
   }
 });
 
 test('every generated run the engine accepts has only finite trace times', () => {
-  const ran = all.filter(c => !engineOutcome(c).error);
+  const ran = all.filter(c => 'record' in engineOutcome(c));
   assert.ok(ran.length > 700, `${ran.length} runs`);
   for (const c of ran) assert.ok(run(c).trace.every(row => Number.isFinite(row.t)), c.id);
 });
 
-test('the engine outcome keeps ids and verdict and leaves timings out', () => {
+// #198: no verdict either. judge() derives it from the record, DLQ and buffer compared here, on the engine's side only.
+test('the engine outcome keeps ids and leaves timings and the verdict out', () => {
   const c = byId.get('poison-paid__defaults');
   assert.deepEqual(engineOutcome(c), {
     record: { status: 'Accepted', paidCents: 0, applied: ['E1', 'E2'] },
     dlq: ['E3'], dropped: [], buffered: [],
-    verdict: { ok: false, visible: true, problems: ['ClaimPaid never applied', 'final status is Accepted, not Paid', 'paid $0.00 instead of $120.00'] },
   });
   assert.deepEqual(normalise(run(c)), engineOutcome(c));
-  assert.match(engineOutcome(byId.get('schema-paid+poison-paid__defaults')).error, /cannot target the same event/);
 });
 
-// The same scenarios and messages as DifferentialRunnerTest.refusedScenariosComeBackAsTheErrorTheEngineGives.
-test('the engine outcome of each refused scenario is the error the Java runner gives', () => {
-  const refused = {
-    'poison-typo': [{ poison: { event: 'ClaimPayed' } }, {},
-      'Unsupported failures.poison.event "ClaimPayed"; expected one of ClaimSubmitted, ClaimAccepted, ClaimPaid'],
-    'timeout-no-attempts': [{ timeout: { event: 'ClaimPaid' } }, {},
-      'Unsupported failures.timeout.attempts "null"; expected "all" or a non-empty list of positive integers'],
-    'reorder-50': [{ reorder: { event: 'ClaimAccepted', delayMs: 50 } }, {},
-      'Unsupported failures.reorder.delayMs "50"; expected 500, the one delay the Java runner takes'],
-    'backoff-bogus': [{}, { backoff: 'bogus' },
-      'Unsupported safeguards.backoff "bogus"; expected one of none, fixed, exponential'],
-    'backoff-list': [{}, { backoff: ['fixed'] },
-      'Unsupported safeguards.backoff "fixed"; expected one of none, fixed, exponential'],
-    'timeout-huge-attempt': [{ timeout: { event: 'ClaimPaid', attempts: [4294967297] } }, {},
-      'Unsupported failures.timeout.attempts "4294967297"; expected "all" or a non-empty list of positive integers'],
-    'idempotency-text': [{}, { idempotency: 'false' }, 'Unsupported safeguards.idempotency "false"; expected true or false'],
-    'retry-text': [{}, { retryLimit: '3' }, 'Unsupported safeguards.retryLimit "3"; expected a whole number from 0 to 5'],
-    'retry-null': [{}, { retryLimit: null }, 'Unsupported safeguards.retryLimit "null"; expected a whole number from 0 to 5'],
-    'retry-huge': [{}, { retryLimit: 4294967297 }, 'Unsupported safeguards.retryLimit "4294967297"; expected a whole number from 0 to 5'],
-    'retry-six': [{}, { retryLimit: 6 }, 'Unsupported safeguards.retryLimit "6"; expected a whole number from 0 to 5'],
-    'retry-fraction': [{}, { retryLimit: 0.0001 }, 'Unsupported safeguards.retryLimit "0.0001"; expected a whole number from 0 to 5'],
-    'idempotency-fraction': [{}, { idempotency: 0.0001 }, 'Unsupported safeguards.idempotency "0.0001"; expected true or false'],
-    'backoff-object': [{}, { backoff: {} }, 'Unsupported safeguards.backoff "[object Object]"; expected one of none, fixed, exponential'],
-    'backoff-null-element': [{}, { backoff: [null, 1] }, 'Unsupported safeguards.backoff ",1"; expected one of none, fixed, exponential'],
-    'backoff-nested': [{}, { backoff: [[1, 2], 3] }, 'Unsupported safeguards.backoff "1,2,3"; expected one of none, fixed, exponential'],
-    'timeout-object-attempt': [{ timeout: { event: 'ClaimPaid', attempts: [{}] } }, {},
-      'Unsupported failures.timeout.attempts "[object Object]"; expected "all" or a non-empty list of positive integers'],
-    'idempotency-object': [{}, { idempotency: {} }, 'Unsupported safeguards.idempotency "[object Object]"; expected true or false'],
-  };
-  for (const [id, [failures, safeguards, message]] of Object.entries(refused)) {
-    assert.deepEqual(engineOutcome({ id, failures, safeguards }), { error: `Scenario ${id}: ${message}` });
+// #198: a refusal compares by the rule that refused, not by its text, which each runtime words its own way.
+test('a refused generated combination comes out as the id of the rule that refused it, and nothing else', () => {
+  const sameEvent = c => c.failures.poison !== undefined && c.failures.poison.event === c.failures.schemaChange?.event;
+  const tooManyRetries = c => c.safeguards.retryLimit > RETRY_LIMITS.at(-1);
+  for (const c of all) {
+    const expected = sameEvent(c) ? { refused: SAME_EVENT_RULE } : tooManyRetries(c) ? { refused: 'safeguards.retryLimit' } : undefined;
+    if (expected) assert.deepEqual(engineOutcome(c), expected, c.id);
+    else assert.deepEqual(Object.keys(engineOutcome(c)), ['record', 'dlq', 'dropped', 'buffered'], c.id);
   }
+  assert.ok(all.filter(sameEvent).length >= 3, 'each poison + schema change pair on one event');
+  assert.equal(all.filter(tooManyRetries).length, BACKOFFS.length, 'one past the retry limit under each backoff');
+});
+
+// One table for both sides: DifferentialRunnerTest.everyRefusalNamesTheRuleTheEngineNames reads this file too. The rows
+// that break two rules hold the two runtimes to the same rule order.
+test('each refused scenario names the rule the Java runner names, the first one it breaks', () => {
+  const rows = JSON.parse(readFileSync(new URL('./differential/refusals.json', import.meta.url), 'utf8'));
+  assert.equal(new Set(rows.map(row => row.id)).size, rows.length, 'unique ids');
+  for (const { refused, ...combination } of rows) {
+    assert.deepEqual(engineOutcome(combination), { refused }, combination.id);
+  }
+});
+
+// Each runtime words its own reasons: the engine's checkedRun() message, as test/engine.test.js pins it.
+test('the engine still words its refusal, with the rule id beside it', () => {
+  assert.throws(() => checkedRun({ id: 'retry-six', safeguards: { retryLimit: 6 } }), {
+    message: 'Scenario retry-six: Unsupported safeguards.retryLimit "6"; expected a whole number from 0 to 5',
+    rule: 'safeguards.retryLimit',
+  });
+});
+
+// Anything else that throws is not a refusal: it keeps its message, as the Java runner's {error} does.
+test('an engine outcome that throws without a rule is an error, not a refusal', () => {
+  assert.deepEqual(engineOutcome({ id: 'unreadable', get failures() { throw new Error('unreadable'); } }), { error: 'unreadable' });
 });
 
 // The same scenario and outcome as DifferentialRunnerTest.nullFailuresAndSafeguardsRunWithTheDefaultsAsInTheEngine.
@@ -145,19 +147,18 @@ test('null failures and safeguards run with the defaults, as in the Java runner'
   assert.deepEqual(engineOutcome({ id: 'null-sections', failures: null, safeguards: null }), {
     record: { status: 'Paid', paidCents: 12000, applied: ['E1', 'E2', 'E3'] },
     dlq: [], dropped: [], buffered: [],
-    verdict: { ok: true, visible: false, problems: [] },
   });
 });
 
-// One table for both sides: DifferentialRunnerTest reads this file too, so the texts cannot drift apart.
-test('every non-object failures or safeguards value is the same refusal the Java runner gives', () => {
+// One table for both sides: DifferentialRunnerTest reads this file too, so the rules cannot drift apart.
+test('every non-object failures or safeguards value is refused by the same rule as in the Java runner', () => {
   const rows = JSON.parse(readFileSync(new URL('./differential/non-object-sections.json', import.meta.url), 'utf8'));
   for (const section of ['failures', 'safeguards']) {
     const types = rows.filter(row => row.id.startsWith(`${section}-`)).map(row => (Array.isArray(row[section]) ? 'array' : typeof row[section]));
     assert.deepEqual([...new Set(types)].sort(), ['array', 'boolean', 'number', 'string'], `${section} covers every non-object JSON type`);
   }
-  for (const { error, ...combination } of rows) {
-    assert.deepEqual(engineOutcome(combination), { error }, combination.id);
+  for (const { refused, ...combination } of rows) {
+    assert.deepEqual(engineOutcome(combination), { refused }, combination.id);
   }
 });
 
@@ -239,14 +240,31 @@ describe('a differential run', () => {
     return { ok, text: lines.join('\n') };
   };
   const [first, second] = all;
+  const cases = refusalCases();
 
   test('passes when both sides agree', () => {
     const { ok, text } = run2({}, fakeJava());
     assert.equal(ok, true);
     assert.ok(text.includes(`${all.length} combinations: ${all.length} agree, 0 known divergences, 0 unexplained mismatches.`), text);
+    assert.ok(text.includes(`${cases.length} refusal cases: ${cases.length} agree, 0 known divergences, 0 unexplained mismatches.`), text);
     // The default scale passes the Java runner no timing arguments (#197).
-    assert.ok(text.startsWith(`Differential test: ${all.length} of ${all.length} combinations; Java --lab.differential-workers=2\n`), text);
-    assert.equal(JSON.parse(readFileSync(join(out, 'engine-outcomes.json'), 'utf8')).length, all.length);
+    assert.ok(text.startsWith(`Differential test: ${all.length} of ${all.length} combinations and ${cases.length} of ${cases.length} refusal cases; `
+      + 'Java --lab.differential-workers=2\n'), text);
+    assert.equal(JSON.parse(readFileSync(join(out, 'engine-outcomes.json'), 'utf8')).length, all.length + cases.length);
+  });
+
+  // #198: no generated combination breaks two rules, so the shared refusal tables are what can catch a rule-order drift.
+  test('runs every refusal table row on both sides, with ids of their own, and fails when the Java rule differs', () => {
+    assert.equal(cases.length, 73, '53 rows of refusals.json and 20 of non-object-sections.json');
+    assert.equal(new Set([...all, ...cases].map(c => c.id)).size, all.length + cases.length, 'no id is both');
+    assert.ok(cases.every(c => !('refused' in c)), 'the expected rule stays out of what the runtimes see');
+    const swapped = run2({ only: ['backoff-and-retry'] }, fakeJava((o, c) => (c.id === 'backoff-and-retry' ? { refused: 'safeguards.retryLimit' } : o)));
+    assert.equal(swapped.ok, false);
+    assert.ok(swapped.text.startsWith(`Differential test: 0 of ${all.length} combinations and 1 of ${cases.length} refusal cases`), swapped.text);
+    assert.ok(swapped.text.includes('MISMATCH backoff-and-retry (differs in: refused)'), swapped.text);
+    assert.ok(swapped.text.includes('repro:       npm run differential -- --only backoff-and-retry'), swapped.text);
+    assert.ok(swapped.text.includes('1 refusal cases: 0 agree, 0 known divergences, 1 unexplained mismatches.'), swapped.text);
+    assert.ok(!swapped.text.includes(' combinations: '), 'no summary for an empty group');
   });
 
   test('fails on a mismatch and prints its repro', () => {
@@ -260,7 +278,7 @@ describe('a differential run', () => {
     assert.equal(run2({}, fakeJava(), known).ok, false);
     const subset = run2({ only: [first.id] }, fakeJava(), known);
     assert.equal(subset.ok, true);
-    assert.ok(subset.text.startsWith(`Differential test: 1 of ${all.length} combinations`), subset.text);
+    assert.ok(subset.text.startsWith(`Differential test: 1 of ${all.length} combinations and 0 of ${cases.length} refusal cases`), subset.text);
     assert.throws(() => run2({ only: ['nope'] }, fakeJava()), /Unknown combination id: nope/);
   });
 });

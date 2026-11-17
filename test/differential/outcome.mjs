@@ -1,26 +1,30 @@
 // The normalised outcome both sides of the differential test produce, and the diff between them.
 // Timings are left out: the engine runs on a virtual clock and the Java runner on wall-clock ms, so only
-// what a run ends with is compared. DifferentialRunner.java writes the same shape.
+// what a run ends with is compared. DifferentialRunner.java writes the same shape. The verdict is left out too (#198):
+// judge() is a pure function of the record, DLQ and ordering buffer compared here, and the site judges every run,
+// recorded ones included, with the engine's own judge().
 import { checkedRun } from '../../engine/rules.js';
 
 const ids = entries => entries.map(e => e.eventId);
 
-// { record, dlq, dropped, buffered, verdict } with event ids only, or { error } when the scenario is refused.
-export function normalise({ record, dlq, dropped, buffered, verdict }) {
+// { record, dlq, dropped, buffered } with event ids only. engineOutcome gives { refused: <rule id> } instead when the
+// scenario breaks a rule, and { error } when the run itself throws.
+export function normalise({ record, dlq, dropped, buffered }) {
   return {
     record: { status: record.status, paidCents: record.paidCents, applied: [...record.applied] },
     dlq: ids(dlq),
     dropped: ids(dropped),
     buffered: ids(buffered),
-    verdict: { ok: verdict.ok, visible: verdict.visible, problems: [...verdict.problems] },
   };
 }
 
+// A refusal compares by rule (#198): both runtimes check the same rules in the same order, so they must name the same
+// first broken rule, while each words its reason its own way.
 export function engineOutcome(combination) {
   try {
     return normalise(checkedRun(combination));
   } catch (error) {
-    return { error: error.message };
+    return error.rule ? { refused: error.rule } : { error: error.message };
   }
 }
 
@@ -33,7 +37,7 @@ export function canonical(value) {
   return JSON.stringify(value);
 }
 
-// The top-level fields where two outcomes differ, e.g. ['record', 'verdict'].
+// The top-level fields where two outcomes differ, e.g. ['record', 'dlq'].
 export function differingFields(a, b) {
   const keys = [...new Set([...Object.keys(a), ...Object.keys(b)])];
   return keys.filter(k => canonical(a[k]) !== canonical(b[k]));
