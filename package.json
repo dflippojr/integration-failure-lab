@@ -17,7 +17,7 @@
     "demo:render": "node demo/render.mjs"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.8"
   },
   "license": "MIT",
   "devDependencies": {

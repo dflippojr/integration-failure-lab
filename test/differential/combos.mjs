@@ -3,6 +3,18 @@
 // under the defaults, every four-failure Free-form setting under two safeguard sets, the longest runs around the
 // retry limit, and a seeded sample of three-kind runs. Not every Free-form run: the form has 92,160. Pure and
 // seeded, so every run sees the same list.
+//
+// The strata, in the order combinations() adds them (the counts are what it produces today; the README gives only the
+// total, and test/docs.test.js checks that total against combinations().length):
+//   - 21 failure settings (kind, target event and timeout attempts, poison included) and 12 single safeguard changes
+//     (each other retry limit and backoff, each toggle flipped, replay after the fix among the toggles);
+//   - no failure and each failure setting under the defaults and under each single safeguard change: 286;
+//   - each pair of failure settings of different kinds under the defaults: 162;
+//   - every four-failure Free-form setting under the defaults and with idempotency, ordering and schema validation
+//     on: 81 settings, 162 runs;
+//   - the longest runs around the retry limit: 16 runs;
+//   - a seeded sample of 150 three-kind runs with random safeguards.
+// Total: 776.
 // combinations() -> [{ id, failures, safeguards }], shaped like scenarios/*.json for engine.run() and the Java runner.
 import { BACKOFFS, DEFAULT_SAFEGUARDS, EVENT_TYPES, RETRY_LIMITS, TIMING } from '../../engine/engine.js';
 
