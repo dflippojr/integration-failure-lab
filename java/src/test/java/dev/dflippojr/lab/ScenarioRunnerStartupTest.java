@@ -22,16 +22,16 @@ import org.springframework.test.annotation.DirtiesContext;
 import tools.jackson.databind.ObjectMapper;
 
 /**
- * The thread that sets a run up stalls right after it arms E2's 40 ms emission and before it adds E3's, as a
- * busy machine can stall any thread. The 0 ms and 40 ms emission timers still fire. Nothing may run until
- * every emission is on the timeline: in 4-combined, E3's emission at 80 ms comes before E2's timeout at
- * 340 ms, so the export must still be the committed recording, apart from wall-clock timing.
+ * The thread that sets a run up stalls right after it arms E2's 25 ms emission and before it adds E3's, as a
+ * busy machine can stall any thread. The 0 ms and 25 ms emission timers still fire. Nothing may run until
+ * every emission is on the timeline: in 4-combined, E3's emission at 50 ms comes before E2's timeout at
+ * 525 ms, so the export must still be the committed recording, apart from wall-clock timing.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class ScenarioRunnerStartupTest {
 
-    /** How long the stall may last at most; it normally ends within the 40 ms before E2's emission. */
+    /** How long the stall may last at most; it normally ends within the 25 ms before E2's emission. */
     static final long STALL_LIMIT_SECONDS = 10;
 
     @Autowired

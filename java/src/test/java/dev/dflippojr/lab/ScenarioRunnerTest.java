@@ -78,7 +78,7 @@ class ScenarioRunnerTest {
     void recordedSettingsKeepAFixedKeyOrder() throws Exception {
         Map<String, Object> result = runner.run(files.load().getFirst());
         assertThat(keys(result.get("runtime"))).containsExactly("transport", "java", "springBoot");
-        assertThat(keys(result.get("timing"))).containsExactly("timeoutMs", "backoffBaseMs", "sendAtMs", "reorderDelayMs");
+        assertThat(keys(result.get("timing"))).containsExactly("timeoutMs", "backoffBaseMs", "sendAtMs", "reorderDelayMs", "replayDelayMs", "timeScale");
         assertThat(keys(result.get("guards"))).containsExactly("retryLimit", "backoff", "idempotency", "ordering",
                 "schemaValidation", "deadLetter", "replayAfterFix");
     }

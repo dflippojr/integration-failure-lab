@@ -49,8 +49,12 @@ function executedResult(id, executed) {
   if (!x) return null;
   const verdict = judge(x.record, { dlq: x.dlq, buffered: x.buffered });
   const note = `Recorded from a real run: Spring Boot ${x.runtime.springBoot} on Java ${x.runtime.java.split('+')[0]}, ${x.runtime.transport}. `
-    + `Shorter wall-clock timings (${x.timing.timeoutMs} ms ack timeout, ${x.timing.backoffBaseMs} ms backoff base), replayed here. Synthetic data.`;
+    + `It ran at ${scaleText(x.timing.timeScale)} of the simulation's timings (${x.timing.timeoutMs} ms ack timeout, ${x.timing.backoffBaseMs} ms backoff base), replayed here. Synthetic data.`;
   return { ...x, expected: EXPECTED_RECORD, verdict, note };
+}
+// The Java runner runs the engine's TIMING at one scale factor (lab.time-scale, #197), which each recording carries.
+export function scaleText(timeScale) {
+  return { 0.25: 'a quarter', 0.5: 'half' }[timeScale] ?? `${+(timeScale * 100).toFixed(1)}%`;
 }
 const reducedMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 

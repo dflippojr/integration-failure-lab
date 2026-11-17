@@ -21,9 +21,10 @@ public record Scenario(String id, int order, String title, Failures failures, Sa
 
     static final List<String> EVENT_TYPES = ClaimEvent.sequence().stream().map(ClaimEvent::type).toList();
     static final List<String> FAILURE_KINDS = List.of("timeout", "duplicate", "reorder", "schemaChange", "poison");
-    // The engine's TIMING.reorderDelayMs, in its virtual ms. This runner delays by lab.reorder-delay-ms, whatever the
-    // scenario says, so it refuses any other value rather than run a different delay from the engine's.
-    static final int REORDER_DELAY_MS = 500;
+    // The engine's TIMING.reorderDelayMs, in its virtual ms. This runner delays by lab.reorder-delay-ms (by default this
+    // delay at lab.time-scale), whatever the scenario says, so it refuses any other value rather than run a different
+    // delay from the engine's.
+    static final int REORDER_DELAY_MS = (int) LabProperties.ENGINE_REORDER_DELAY_MS;
     // The highest of the engine's RETRY_LIMITS: the most retries ScenarioRunner.scenarioLimit() can finish, so both sides refuse more.
     static final int MAX_RETRY_LIMIT = 5;
     // The on/off safeguards and their defaults, in engine.js DEFAULT_SAFEGUARDS order, which is the order they are checked in.

@@ -27,7 +27,7 @@ import org.springframework.test.annotation.DirtiesContext;
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class ScenarioRunnerLateTimerTest {
 
-    /** Later than E2's emission at 40 ms, and well inside the read timeout. */
+    /** Later than E2's emission at 25 ms, and well inside the read timeout. */
     static final long LATE_MS = 150;
 
     @Autowired

@@ -27,7 +27,7 @@ import org.springframework.test.annotation.DirtiesContext;
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class ScenarioRunnerSlowArrivalTest {
 
-    /** Longer than the 40 ms gap before E2 and shorter than the read timeout, so E1 still succeeds. */
+    /** Longer than the 25 ms gap before E2 and shorter than the read timeout, so E1 still succeeds. */
     static final long HOLD_MS = 200;
 
     @Autowired

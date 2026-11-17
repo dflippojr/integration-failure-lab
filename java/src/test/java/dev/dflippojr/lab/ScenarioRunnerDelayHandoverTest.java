@@ -23,8 +23,8 @@ import org.springframework.test.annotation.DirtiesContext;
 
 /**
  * The downstream thread that waits out an out-of-order delay stalls right after the timeline stops waiting
- * for its request, as a busy machine can stall any thread. E2 is delayed to 240 ms on the timeline and E1
- * times out at 300 ms, so the end of E2's delay must run first. Whatever the stall does, the run must
+ * for its request, as a busy machine can stall any thread. E2 is delayed to 150 ms on the timeline and E1
+ * times out at 500 ms, so the end of E2's delay must run first. Whatever the stall does, the run must
  * be the one an unstalled machine gives.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)

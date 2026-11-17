@@ -130,6 +130,8 @@ public class ScenarioRunner {
         timing.put("backoffBaseMs", props.backoffBaseMs());
         timing.put("sendAtMs", props.sendAtMs());
         timing.put("reorderDelayMs", props.reorderDelayMs());
+        timing.put("replayDelayMs", props.replayDelayMs());
+        timing.put("timeScale", props.timeScale());
         result.put("timing", timing);
         result.put("guards", scenario.safeguards().asMap());
         result.put("trace", trace.rows());
