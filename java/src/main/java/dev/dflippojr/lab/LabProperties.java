@@ -20,7 +20,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public record LabProperties(
         String scenariosDir,
         String exportDir,
-        double timeScale,
+        Double timeScale,
         long timeoutMs,
         long backoffBaseMs,
         List<Long> sendAtMs,
@@ -47,8 +47,9 @@ public record LabProperties(
 
     public LabProperties {
         if (scenariosDir == null) scenariosDir = "../scenarios";
-        if (timeScale == 0) timeScale = DEFAULT_TIME_SCALE;
-        if (!(timeScale >= MIN_TIME_SCALE) || Double.isInfinite(timeScale)) {
+        // Null only when lab.time-scale is not set: an explicit 0 is a scale that rounds every timing to 0, so it is refused.
+        if (timeScale == null) timeScale = DEFAULT_TIME_SCALE;
+        if (!(timeScale >= MIN_TIME_SCALE) || timeScale.isInfinite()) {
             throw new IllegalArgumentException("lab.time-scale must be a finite number of at least " + MIN_TIME_SCALE
                     + ", so every scaled engine timing stays above 0 ms; got " + timeScale);
         }

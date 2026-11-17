@@ -40,7 +40,7 @@ class LabPropertiesTest {
 
     @Test
     void defaultTimingsAreTheEngineTimingsAtTheDefaultScale() {
-        LabProperties properties = new LabProperties(null, null, 0, 0, 0, null, 0, 0, null, null, 0);
+        LabProperties properties = new LabProperties(null, null, null, 0, 0, null, 0, 0, null, null, 0);
         assertThat(properties.timeoutMs()).isEqualTo(Math.round(LabProperties.ENGINE_TIMEOUT_MS * LabProperties.DEFAULT_TIME_SCALE));
         assertThat(properties.backoffBaseMs()).isEqualTo(Math.round(LabProperties.ENGINE_BACKOFF_BASE_MS * LabProperties.DEFAULT_TIME_SCALE));
         assertThat(properties.sendAtMs()).isEqualTo(LabProperties.ENGINE_SEND_AT_MS.stream()
@@ -82,6 +82,17 @@ class LabPropertiesTest {
         });
     }
 
+    // An explicit zero is a scale that rounds every timing to 0, not an omitted property (#202 review).
+    @ParameterizedTest
+    @ValueSource(strings = {"0", "0.0", "-1"})
+    void anExplicitZeroOrNegativeTimeScaleFailsWithConfigurationDiagnostics(String scale) {
+        contextRunner.withPropertyValues("lab.time-scale=" + scale).run(context -> {
+            assertThat(context).hasFailed();
+            assertThat(context.getStartupFailure()).hasRootCauseInstanceOf(IllegalArgumentException.class)
+                    .hasStackTraceContaining("lab.time-scale must be a finite number of at least 0.005");
+        });
+    }
+
     @ParameterizedTest
     @ValueSource(doubles = {-0.25, 0.004, Double.NaN, Double.POSITIVE_INFINITY})
     void aTimeScaleThatCannotKeepEveryTimingAboveZeroFailsAtConstruction(double scale) {
@@ -120,7 +131,7 @@ class LabPropertiesTest {
     @MethodSource("invalidOverrides")
     void incompleteOrNullEmissionTimesFailAtConstruction(List<Long> times) {
         assertThatIllegalArgumentException()
-                .isThrownBy(() -> new LabProperties(null, null, 0, 0, 0, times, 0, 0, null, null, 0))
+                .isThrownBy(() -> new LabProperties(null, null, null, 0, 0, times, 0, 0, null, null, 0))
                 .withMessageContaining("lab.send-at-ms")
                 .withMessageContaining("exactly three non-null emission times");
     }
@@ -141,10 +152,10 @@ class LabPropertiesTest {
 
     @Test
     void emptyOverrideUsesDefaultsAndValidOverrideIsCopied() {
-        assertThat(new LabProperties(null, null, 0, 0, 0, List.of(), 0, 0, null, null, 0).sendAtMs())
+        assertThat(new LabProperties(null, null, null, 0, 0, List.of(), 0, 0, null, null, 0).sendAtMs())
                 .containsExactly(0L, 25L, 50L);
         List<Long> times = new ArrayList<>(List.of(10L, 50L, 90L));
-        LabProperties properties = new LabProperties(null, null, 0, 0, 0, times, 0, 0, null, null, 0);
+        LabProperties properties = new LabProperties(null, null, null, 0, 0, times, 0, 0, null, null, 0);
         times.clear();
         assertThat(properties.sendAtMs()).containsExactly(10L, 50L, 90L);
     }
@@ -158,12 +169,12 @@ class LabPropertiesTest {
             assertThat(properties.differentialOut()).isEqualTo("out.json");
         });
         assertThatIllegalArgumentException()
-                .isThrownBy(() -> new LabProperties(null, null, 0, 0, 0, null, 0, 0, "in.json", null, 0))
+                .isThrownBy(() -> new LabProperties(null, null, null, 0, 0, null, 0, 0, "in.json", null, 0))
                 .withMessageContaining("must be set together");
         assertThatIllegalArgumentException()
-                .isThrownBy(() -> new LabProperties(null, "export", 0, 0, 0, null, 0, 0, "in.json", "out.json", 0))
+                .isThrownBy(() -> new LabProperties(null, "export", null, 0, 0, null, 0, 0, "in.json", "out.json", 0))
                 .withMessageContaining("set one");
-        assertThat(new LabProperties(null, null, 0, 0, 0, null, 0, 0, null, null, 0).differentialWorkers()).isEqualTo(1);
+        assertThat(new LabProperties(null, null, null, 0, 0, null, 0, 0, null, null, 0).differentialWorkers()).isEqualTo(1);
     }
 
     // scripts/differential.mjs parseOptions caps --workers at 4 too: each worker starts its own Spring context and port.
@@ -171,14 +182,14 @@ class LabPropertiesTest {
     @ValueSource(ints = {-1, 5})
     void differentialWorkersOutsideOneToFourFailAtConstruction(int workers) {
         assertThatIllegalArgumentException()
-                .isThrownBy(() -> new LabProperties(null, null, 0, 0, 0, null, 0, 0, null, null, workers))
+                .isThrownBy(() -> new LabProperties(null, null, null, 0, 0, null, 0, 0, null, null, workers))
                 .withMessage("lab.differential-workers must be between 1 and 4");
     }
 
     @ParameterizedTest
     @ValueSource(ints = {1, 4})
     void differentialWorkersFromOneToFourAreKept(int workers) {
-        assertThat(new LabProperties(null, null, 0, 0, 0, null, 0, 0, null, null, workers).differentialWorkers()).isEqualTo(workers);
+        assertThat(new LabProperties(null, null, null, 0, 0, null, 0, 0, null, null, workers).differentialWorkers()).isEqualTo(workers);
     }
 
     @Configuration(proxyBeanMethods = false)
