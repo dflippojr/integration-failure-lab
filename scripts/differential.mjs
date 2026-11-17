@@ -8,7 +8,8 @@
 //   npm run differential                      all combinations
 //   npm run differential -- --only <id> ...   just these (the repro line each mismatch prints)
 //   npm run differential -- --workers <1-4>   Java combinations run at a time in the one JVM (default 4)
-//   npm run differential -- --scale <f>       Java speed as a fraction of the engine's virtual clock (default 0.25, at least 0.005)
+//   npm run differential -- --scale <f>       Java speed as a fraction of the engine's virtual clock, as --lab.time-scale
+//                                             (default 0.25, the runner's own default, so no timing argument; at least 0.005)
 //
 // Files go to java/target/differential/: combinations.json, engine-outcomes.json and java-outcomes.json.
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -24,27 +25,33 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const KNOWN_PATH = join(root, 'test', 'differential', 'known.json');
 const OUT_DIR = join(root, 'java', 'target', 'differential');
 export const MAX_KNOWN = 3;
-// The Java runner's defaults are not proportional to the engine's virtual clock (its replay comes 1.3 ack
-// timeouts after parking, the engine's 2.5), which reorders outcomes on its own. The differential run gives
-// Java the engine's timing model at this fraction of its speed instead, so both sides share one timing
-// semantics and only behaviour can differ. Loopback latency stands in for TIMING.latencyMs.
+// One timing model (#197): the Java runner runs the engine's TIMING at lab.time-scale of its length, 0.25 by default
+// (LabProperties.DEFAULT_TIME_SCALE), the scale the shipped recordings use. So at the default scale the differential
+// passes no timing arguments and checks the very configuration that records executed/; another --scale reaches the
+// runner as --lab.time-scale. Loopback latency stands in for TIMING.latencyMs.
 export const TIME_SCALE = 0.25;
 
-// The Java runner's timing properties, in the engine's milliseconds: each property with its values.
+// The Java runner plays one reorder delay, TIMING.reorderDelayMs at its scale, whatever a combination asks for.
+function checkReorderDelay() {
+  const other = combinations().map(c => c.failures.reorder?.delayMs).find(d => d !== undefined && d !== TIMING.reorderDelayMs);
+  if (other !== undefined) throw new Error(`The Java runner plays TIMING.reorderDelayMs (${TIMING.reorderDelayMs} ms) at its scale; a combination uses ${other}`);
+}
+
+// The engine timings the Java runner scales, in the engine's milliseconds: each property with its values.
 function engineJavaTimings() {
-  const reorder = new Set(combinations().flatMap(c => (c.failures.reorder ? [c.failures.reorder.delayMs] : [])));
-  if (reorder.size !== 1) throw new Error(`The Java runner takes one reorder delay; combinations use ${[...reorder].join(', ')}`);
   return [
     ['lab.timeout-ms', [TIMING.timeoutMs]],
     ['lab.backoff-base-ms', [TIMING.backoffBaseMs]],
     ['lab.send-at-ms', TIMING.sendAt],
-    ['lab.reorder-delay-ms', [...reorder]],
+    ['lab.reorder-delay-ms', [TIMING.reorderDelayMs]],
     ['lab.replay-delay-ms', [TIMING.replayAfterMs]],
   ];
 }
 
+// The Java runner's arguments for this scale: none at its default, which is already the engine's TIMING at TIME_SCALE.
 export function javaTimingArgs(scale = TIME_SCALE) {
-  return engineJavaTimings().map(([name, values]) => `--${name}=${values.map(v => Math.round(v * scale)).join(',')}`);
+  checkReorderDelay();
+  return scale === TIME_SCALE ? [] : [`--lab.time-scale=${scale}`];
 }
 
 // LabProperties reads a delay of 0 or less as unset and substitutes its default (#179), so a positive timing must still

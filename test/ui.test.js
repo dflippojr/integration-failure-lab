@@ -29,7 +29,7 @@ class FakeElement {
   text() { return this.children.map(c => (c instanceof FakeElement ? c.text() : String(c))).join(''); }
 }
 
-let mountLab, SCENARIOS, EXECUTED, RECORDING_IDS, describe, toFormValues, formScenario;
+let mountLab, SCENARIOS, EXECUTED, RECORDING_IDS, describe, toFormValues, formScenario, scaleText;
 import { run, judge, DEFAULT_SAFEGUARDS, SAFEGUARD_CHANGES } from '../engine/engine.js';
 import { refusal } from '../engine/rules.js';
 import { failureSettings, safeguardToggles } from './differential/combos.mjs';
@@ -41,7 +41,7 @@ before(async () => {
   execFileSync(process.execPath, [fileURLToPath(new URL('../scripts/build.mjs', import.meta.url)), 'test']);
   // Import the source ui/lab.js, not a built copy, so coverage lands on it; see lab-loader.mjs.
   register('./lab-loader.mjs', import.meta.url);
-  ({ mountLab, describe, toFormValues, formScenario } = await import('../ui/lab.js'));
+  ({ mountLab, describe, toFormValues, formScenario, scaleText } = await import('../ui/lab.js'));
   ({ SCENARIOS, RECORDING_IDS } = await import('../dist-test/scenarios.js'));
   ({ EXECUTED } = await import('../dist-test/executed.js'));
   globalThis.__loadRecordings = () => EXECUTED;
@@ -357,6 +357,13 @@ test('manifest omissions offer only simulation even with a saved executed prefer
   } finally { RECORDING_IDS.unshift(id); globalThis.localStorage = originalStorage; }
 });
 
+test('the recording note names the time scale in words', () => {
+  assert.equal(scaleText(0.25), 'a quarter');
+  assert.equal(scaleText(0.5), 'half');
+  assert.equal(scaleText(0.15), '15%');
+  assert.equal(scaleText(0.005), '0.5%');
+});
+
 for (const motion of ['reduced', 'animated']) {
   test(`all twelve recorded traces, records, verdicts and provenance survive ${motion} playback`, async () => {
     globalThis.__loadRecordings = () => EXECUTED;
@@ -383,6 +390,7 @@ for (const motion of ['reduced', 'animated']) {
         assert.ok(note.includes(result.runtime.transport));
         assert.ok(note.includes(`${result.timing.timeoutMs} ms ack timeout`));
         assert.ok(note.includes(`${result.timing.backoffBaseMs} ms backoff base`));
+        assert.ok(note.includes("It ran at a quarter of the simulation's timings"), note);
         assert.match(note, /Recorded from a real run.*replayed here.*Synthetic data/);
         assert.equal(byClass(root, 'ifl-stats').children[0].children[0], 'Wall-clock time ');
       }

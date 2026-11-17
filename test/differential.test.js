@@ -1,13 +1,13 @@
 import { test, describe, before, after } from 'node:test';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import assert from 'node:assert/strict';
 import { combinations, failureSettings, safeguardToggles, EVENT_TYPES } from './differential/combos.mjs';
 import { engineOutcome, normalise, compare, canonical } from './differential/outcome.mjs';
-import { loadKnown, report, javaTimingArgs, parseOptions, differential, MAX_KNOWN } from '../scripts/differential.mjs';
-import { run, BACKOFFS, DEFAULT_SAFEGUARDS, RETRY_LIMITS, TIMING } from '../engine/engine.js';
+import { loadKnown, report, javaTimingArgs, parseOptions, differential, MAX_KNOWN, TIME_SCALE } from '../scripts/differential.mjs';
+import { run, BACKOFFS, DEFAULT_SAFEGUARDS, RETRY_LIMITS } from '../engine/engine.js';
 
 const all = combinations();
 const byId = new Map(all.map(c => [c.id, c]));
@@ -182,9 +182,19 @@ test('compare separates agreement, owner-decided divergences, stale entries and 
   assert.equal(report({ explained: [], unexplained: [], stale: [] }, 4, () => {}), true);
 });
 
-test('Java runs the engine timing model, scaled', () => {
-  assert.deepEqual(javaTimingArgs(0.5), [`--lab.timeout-ms=${TIMING.timeoutMs / 2}`, `--lab.backoff-base-ms=${TIMING.backoffBaseMs / 2}`,
-    `--lab.send-at-ms=${TIMING.sendAt.map(t => t / 2).join(',')}`, '--lab.reorder-delay-ms=250', `--lab.replay-delay-ms=${TIMING.replayAfterMs / 2}`]);
+// #197: the Java runner's defaults are the engine's TIMING at TIME_SCALE, so the differential checks the configuration
+// that records executed/ and needs no timing arguments for it; another scale reaches the runner as lab.time-scale.
+test('Java runs the engine timing model at its own default scale, with no timing arguments', () => {
+  assert.deepEqual(javaTimingArgs(), []);
+  assert.deepEqual(javaTimingArgs(TIME_SCALE), []);
+  assert.deepEqual(javaTimingArgs(0.5), ['--lab.time-scale=0.5']);
+});
+
+test('the differential default scale is the scale the Java runner recorded executed/ with by default', () => {
+  const executed = new URL('../executed/', import.meta.url);
+  const scales = new Set(readdirSync(executed).filter(f => f.endsWith('.json') && f !== 'index.json')
+    .map(f => JSON.parse(readFileSync(new URL(f, executed), 'utf8')).timing.timeScale));
+  assert.deepEqual([...scales], [TIME_SCALE]);
 });
 
 test(`known.json lists at most ${MAX_KNOWN} divergences, each with an issue link and generated combinations`, () => {
@@ -219,7 +229,7 @@ describe('a differential run', () => {
 
   // Stands in for the jar: answers with the engine's own outcomes, after letting the test tamper with them.
   const fakeJava = (tamper = o => o) => (inFile, outFile, args) => {
-    assert.deepEqual(args, ['--lab.differential-workers=2', ...javaTimingArgs(0.25)]);
+    assert.deepEqual(args, ['--lab.differential-workers=2']);
     const combos = JSON.parse(readFileSync(inFile, 'utf8'));
     writeFileSync(outFile, JSON.stringify(combos.map(c => ({ id: c.id, outcome: tamper(engineOutcome(c), c) }))));
   };
@@ -234,6 +244,8 @@ describe('a differential run', () => {
     const { ok, text } = run2({}, fakeJava());
     assert.equal(ok, true);
     assert.ok(text.includes(`${all.length} combinations: ${all.length} agree, 0 known divergences, 0 unexplained mismatches.`), text);
+    // The default scale passes the Java runner no timing arguments (#197).
+    assert.ok(text.startsWith(`Differential test: ${all.length} of ${all.length} combinations; Java --lab.differential-workers=2\n`), text);
     assert.equal(JSON.parse(readFileSync(join(out, 'engine-outcomes.json'), 'utf8')).length, all.length);
   });
 

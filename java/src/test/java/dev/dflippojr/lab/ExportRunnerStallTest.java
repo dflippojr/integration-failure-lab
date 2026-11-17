@@ -22,7 +22,7 @@ import tools.jackson.databind.ObjectMapper;
 
 /**
  * The export behind the required recordings check, on a machine that stalls: in every run the first E2 to
- * reach the store is held there past the 300 ms read timeout, as a busy machine or a paused JVM would. The
+ * reach the store is held there past the 500 ms read timeout, as a busy machine or a paused JVM would. The
  * scenario injects no such delay, so the recordings must still be the committed ones, apart from wall-clock
  * timing. A stall is not behaviour.
  */
@@ -30,8 +30,8 @@ import tools.jackson.databind.ObjectMapper;
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class ExportRunnerStallTest {
 
-    /** Past the 300 ms read timeout, even for 3a's E2, which is also delayed 200 ms on purpose. */
-    static final long STALL_MS = 400;
+    /** Past the 500 ms read timeout, even for 3a's E2, which is also delayed 125 ms on purpose. */
+    static final long STALL_MS = 600;
 
     @Autowired
     ExportRunner export;
