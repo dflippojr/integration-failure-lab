@@ -91,7 +91,7 @@ test('the longest runs around the retry limit are generated under every backoff,
 });
 
 test('every generated run the engine accepts has only finite trace times', () => {
-  const ran = all.filter(c => !engineOutcome(c).error);
+  const ran = all.filter(c => 'record' in engineOutcome(c));
   assert.ok(ran.length > 700, `${ran.length} runs`);
   for (const c of ran) assert.ok(run(c).trace.every(row => Number.isFinite(row.t)), c.id);
 });
