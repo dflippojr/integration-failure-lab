@@ -60,13 +60,10 @@ class DifferentialRunnerTest {
                 "ackloss-paid__idempotency", "timeout-paid-all__retry0+no-deadLetter", "schema-paid+poison-paid__defaults");
         assertThat(outcomes.get(0).get("outcome")).isEqualTo(Map.of(
                 "record", Map.of("status", "Paid", "paidCents", 12000, "applied", List.of("E1", "E2", "E3")),
-                "dlq", List.of(), "dropped", List.of(), "buffered", List.of(),
-                "verdict", Map.of("ok", true, "visible", false, "problems", List.of())));
+                "dlq", List.of(), "dropped", List.of(), "buffered", List.of()));
         assertThat(outcomes.get(1).get("outcome")).isEqualTo(Map.of(
                 "record", Map.of("status", "Accepted", "paidCents", 0, "applied", List.of("E1", "E2")),
-                "dlq", List.of(), "dropped", List.of("E3"), "buffered", List.of(),
-                "verdict", Map.of("ok", false, "visible", false, "problems", List.of(
-                        "ClaimPaid never applied", "final status is Accepted, not Paid", "paid $0.00 instead of $120.00"))));
+                "dlq", List.of(), "dropped", List.of("E3"), "buffered", List.of()));
         assertThat((Map<String, Object>) outcomes.get(2).get("outcome")).containsOnlyKeys("error");
         assertThat((String) ((Map<String, Object>) outcomes.get(2).get("outcome")).get("error"))
                 .isEqualTo("Scenario schema-paid+poison-paid__defaults: failures.poison and failures.schemaChange cannot target the same event (ClaimPaid)");
@@ -146,9 +143,7 @@ class DifferentialRunnerTest {
                 "failures", Map.of("timeout", Map.of("event", "ClaimPaid", "attempts", "all")),
                 "safeguards", Map.of("retryLimit", 5, "backoff", "exponential", "replayAfterFix", true)))).isEqualTo(Map.of(
                 "record", Map.of("status", "Accepted", "paidCents", 0L, "applied", List.of("E1", "E2")),
-                "dlq", List.of("E3"), "dropped", List.of(), "buffered", List.of(),
-                "verdict", Map.of("ok", false, "visible", true, "problems", List.of(
-                        "ClaimPaid never applied", "final status is Accepted, not Paid", "paid $0.00 instead of $120.00"))));
+                "dlq", List.of("E3"), "dropped", List.of(), "buffered", List.of()));
     }
 
     @Test
@@ -160,8 +155,7 @@ class DifferentialRunnerTest {
         combination.put("safeguards", null);
         assertThat(DifferentialRunner.outcome(runner, combination)).isEqualTo(Map.of(
                 "record", Map.of("status", "Paid", "paidCents", 12000L, "applied", List.of("E1", "E2", "E3")),
-                "dlq", List.of(), "dropped", List.of(), "buffered", List.of(),
-                "verdict", Map.of("ok", true, "visible", false, "problems", List.of())));
+                "dlq", List.of(), "dropped", List.of(), "buffered", List.of()));
     }
 
     /** One table for both sides: test/differential.test.js checks the engine against this same file. */
@@ -199,7 +193,7 @@ class DifferentialRunnerTest {
                     .isEqualTo(Map.of("error", row.get("error")));
         }
         Map<String, Object> healthy = (Map<String, Object>) outcomes.get(rows.size() / 2).get("outcome");
-        assertThat(healthy).containsKeys("record", "verdict").doesNotContainKey("error");
+        assertThat(healthy).containsOnlyKeys("record", "dlq", "dropped", "buffered");
     }
 
     @Test

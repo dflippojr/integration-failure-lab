@@ -95,12 +95,12 @@ test('every generated run the engine accepts has only finite trace times', () =>
   for (const c of ran) assert.ok(run(c).trace.every(row => Number.isFinite(row.t)), c.id);
 });
 
-test('the engine outcome keeps ids and verdict and leaves timings out', () => {
+// #198: no verdict either. judge() derives it from the record, DLQ and buffer compared here, on the engine's side only.
+test('the engine outcome keeps ids and leaves timings and the verdict out', () => {
   const c = byId.get('poison-paid__defaults');
   assert.deepEqual(engineOutcome(c), {
     record: { status: 'Accepted', paidCents: 0, applied: ['E1', 'E2'] },
     dlq: ['E3'], dropped: [], buffered: [],
-    verdict: { ok: false, visible: true, problems: ['ClaimPaid never applied', 'final status is Accepted, not Paid', 'paid $0.00 instead of $120.00'] },
   });
   assert.deepEqual(normalise(run(c)), engineOutcome(c));
   assert.match(engineOutcome(byId.get('schema-paid+poison-paid__defaults')).error, /cannot target the same event/);
@@ -145,7 +145,6 @@ test('null failures and safeguards run with the defaults, as in the Java runner'
   assert.deepEqual(engineOutcome({ id: 'null-sections', failures: null, safeguards: null }), {
     record: { status: 'Paid', paidCents: 12000, applied: ['E1', 'E2', 'E3'] },
     dlq: [], dropped: [], buffered: [],
-    verdict: { ok: true, visible: false, problems: [] },
   });
 });
 

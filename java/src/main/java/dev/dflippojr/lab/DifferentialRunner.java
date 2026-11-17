@@ -142,26 +142,22 @@ public class DifferentialRunner implements CommandLineRunner {
         }
     }
 
-    /** {@code {record, dlq, dropped, buffered, verdict}} with event ids only; the same shape as test/differential/outcome.mjs. */
+    /**
+     * {@code {record, dlq, dropped, buffered}} with event ids only; the same shape as test/differential/outcome.mjs. No
+     * verdict (#198): it is a pure function of these fields, and the site judges every recording with the engine's judge().
+     */
     @SuppressWarnings("unchecked")
     static Map<String, Object> normalise(Map<String, Object> result) {
         Map<String, Object> record = (Map<String, Object>) result.get("record");
-        List<String> applied = (List<String>) record.get("applied");
-        List<String> dlq = ids(result.get("dlq"));
-        List<String> buffered = ids(result.get("buffered"));
-        String status = (String) record.get("status");
-        long paidCents = ((Number) record.get("paidCents")).longValue();
-
         Map<String, Object> normalised = new LinkedHashMap<>();
         Map<String, Object> outRecord = new LinkedHashMap<>();
-        outRecord.put("status", status);
-        outRecord.put("paidCents", paidCents);
-        outRecord.put("applied", applied);
+        outRecord.put("status", record.get("status"));
+        outRecord.put("paidCents", ((Number) record.get("paidCents")).longValue());
+        outRecord.put("applied", record.get("applied"));
         normalised.put("record", outRecord);
-        normalised.put("dlq", dlq);
+        normalised.put("dlq", ids(result.get("dlq")));
         normalised.put("dropped", ids(result.get("dropped")));
-        normalised.put("buffered", buffered);
-        normalised.put("verdict", Verdict.judge(status, paidCents, applied, dlq, buffered).asMap());
+        normalised.put("buffered", ids(result.get("buffered")));
         return normalised;
     }
 
